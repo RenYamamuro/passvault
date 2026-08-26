@@ -7,7 +7,7 @@ import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
   state, settings, save, forceSave, downloadVault, toast, noteActivity,
   readVaultFileBytes, applyMerge,
-  copyPlain, copySecret, el, $, fmtDate, fmtDateTime,
+  copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
   render, hooks,
 } from './app.js';
@@ -132,7 +132,8 @@ hooks.renderDetail = function renderDetail() {
   }
 
   parts.push(el('div', { className: 'meta', textContent:
-    `更新: ${fmtDateTime(item.updatedAt)}　作成: ${fmtDate(item.createdAt)}` }));
+    // 並べて出すので書式を揃える。片方だけ和暦風だと目が引っかかる。
+    `更新: ${fmtDateTime(item.updatedAt)}　作成: ${fmtDateTime(item.createdAt)}` }));
 
   const actions = el('div', { className: 'actions' });
   if (item.trashedAt) {

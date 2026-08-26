@@ -830,6 +830,13 @@ export function render() {
   }
 }
 
+/// 件数の表示。0 は場所だけ取って数を出さない。
+/// 全部の行に数字が並ぶと、意味のある数まで埋もれる。
+const count = value => el('span', {
+  className: value ? 'count' : 'count zero',
+  textContent: String(value),
+});
+
 function renderSidebar() {
   const rows = [];
   const add = (selection, iconName, label, extra) => {
@@ -846,7 +853,7 @@ function renderSidebar() {
     }, [
       icon(iconName),
       el('span', { className: 'grow', textContent: label }),
-      extra ?? el('span', { className: 'count', textContent: String(itemsFor(selection).length) }),
+      extra ?? count(itemsFor(selection).length),
     ]));
   };
 
@@ -864,7 +871,7 @@ function renderSidebar() {
   add({ kind: 'watchtower' }, state.findings.length ? 'shield' : 'shieldCheck', 'Watchtower',
     state.findings.length
       ? el('span', { className: 'badge', textContent: String(state.findings.length) })
-      : el('span', { className: 'count', textContent: '0' }));
+      : count(0));
 
   const tags = allTags();
   if (tags.length) {
