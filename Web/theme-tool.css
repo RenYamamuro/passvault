@@ -1,0 +1,97 @@
+/* テーマ「道具」（採用中）
+ *
+ * style.css の骨組みに重ねて色と密度を決める。単独では使えない。
+ *
+ * 考え方: 彩度を捨てて情報密度を上げる。色は状態を示すときだけ使い、
+ * 種別は色ではなくアイコンの形で見分ける。毎日長時間見ても疲れないこと優先。
+ * 色を絞ってあるぶん、警告の色が効く。
+ */
+
+:root {
+  --accent: #5b5bd6;
+  --accent-fallback: #5b5bd6;
+  --accent-text: #fff;
+
+  --window: #fbfbfc;
+  --sidebar: #f7f7f8;
+  --content: #ffffff;
+  --raised: #ffffff;
+  --sunken: #f4f4f5;
+
+  --text: #16161a;
+  --text-2: #66666e;
+  --text-3: #9a9aa2;
+  --hairline: rgba(0, 0, 0, 0.07);
+  --hairline-strong: rgba(0, 0, 0, 0.13);
+  --hover: rgba(0, 0, 0, 0.04);
+
+  --r-small: 4px;
+  --r-medium: 6px;
+  --r-large: 8px;
+
+  /* 影を使わず、境界線だけで階層を作る */
+  --shadow-raised: none;
+  --shadow-sheet: 0 8px 32px rgba(0, 0, 0, 0.14);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #7c7cf0;
+    --accent-fallback: #7c7cf0;
+    --window: #0f0f11;
+    --sidebar: #131316;
+    --content: #0f0f11;
+    --raised: #17171a;
+    --sunken: #0b0b0d;
+    --text: #ededf0;
+    --text-2: #8f8f99;
+    --text-3: #5e5e68;
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.14);
+    --hover: rgba(255, 255, 255, 0.05);
+  }
+}
+
+body { font-size: 12.5px; }
+
+/* 半透明をやめて、単色で締める */
+#sidebar, .col-head, #toast, .dlg-head {
+  -webkit-backdrop-filter: none; backdrop-filter: none;
+}
+#sidebar { background: var(--sidebar); }
+.col-head { background: var(--content); min-height: 38px; }
+
+/* 密度を上げる */
+#app { grid-template-columns: 196px 268px 1fr; }
+.sb-row { padding: 3px 8px; border-radius: 4px; }
+.sb-group h3 { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; margin: 14px 14px 2px; }
+.item-row { padding: 5px 9px; border-radius: 4px; gap: 8px; }
+.item-row .s { font-size: 10.5px; }
+.row { padding: 7px 11px; }
+.detail { padding: 18px 20px 36px; }
+
+/* 選択は塗りつぶさず、地を薄く敷いて文字を強くする */
+.sb-row.sel {
+  background: var(--hover); color: var(--text); font-weight: 550;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sb-row.sel .icon { color: var(--accent); }
+.item-row.sel { background: var(--hover); color: var(--text); box-shadow: inset 2px 0 0 var(--accent); }
+.item-row.sel .s { color: var(--text-2); }
+.item-row.sel .marks { color: var(--text-3); }
+
+/* 種別は色で分けず、形だけで見分ける */
+.item-row .avatar, .detail-head .avatar, .avatar.small {
+  background: transparent; color: var(--text-2); box-shadow: none;
+}
+.item-row .avatar { width: 20px; height: 20px; }
+.detail-head .avatar { width: 30px; height: 30px; }
+.detail-head .avatar svg { width: 20px; height: 20px; }
+.item-row.sel .avatar { background: transparent; color: var(--accent); }
+
+.card, .group, .notes, .tag {
+  box-shadow: none; border-color: var(--hairline-strong); border-radius: var(--r-medium);
+}
+.detail-head h1 { font-size: 16px; }
+.push { border-radius: var(--r-small); box-shadow: none; }
+.banner { border-radius: var(--r-medium); }

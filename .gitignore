@@ -1,0 +1,25 @@
+build/
+build-ios/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# 本物の保管庫を誤ってコミットしないための保険。
+# 中身は暗号化されているとはいえ、git の履歴に一度入ると実質消せない。
+# そもそもここに置かないのが正しいが、置いてしまった場合の受け皿として。
+*.pvlt
+*.pvlt.bak
+*.pvlt.*-backup-*
+
+# 検証用の見本だけは追跡する（マスターパスワードは Web/README.md 記載の既知の値で、
+# 中身も架空のデータしか入っていない）
+!Web/compat-vault.pvlt
+
+# --site の出力。生成物なので追跡しない（配信用に別途コピーする）。
+Web/site/
+
+# macOS が勝手に作るもの
+.DS_Store
+
+# R が勝手に作るもの（このプロジェクトとは無関係）
+.Rhistory

@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>PassVault 互換性チェック</title>
+<style>
+  body { font: 14px/1.6 -apple-system, sans-serif; margin: 24px; }
+  pre { background: #f4f4f6; padding: 16px; border-radius: 8px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>PassVault 互換性チェック</h1>
+<p>Swift 版が作った保管庫を Web Crypto API で開けるかを確かめる。</p>
+<pre id="out">実行中…</pre>
+
+<script type="module">
+// Swift 版と同じ形式を Web Crypto API で再現できるかの検証。
+//
+// ファイル形式:
+//   ヘッダ 44 バイト: "PVLT"(4) + version u16BE(2) + kdfID u16BE(2)
+//                     + iterations u32BE(4) + salt(32)
+//   本体: AES-GCM の nonce(12) + 暗号文 + 認証タグ(16)
+//   追加認証データ(AAD): ヘッダ 44 バイトそのもの
+//   鍵: PBKDF2-HMAC-SHA512(パスワードのUTF-8, salt, iterations) の 32 バイト
+
+const out = document.getElementById('out');
+const lines = [];
+let failures = 0;
+
+function check(name, condition) {
+  lines.push(`${condition ? 'PASS' : 'FAIL'}  ${name}`);
+  if (!condition) failures++;
+  out.textContent = lines.join('\n');
+}
+function note(text) {
+  lines.push(`      ${text}`);
+  out.textContent = lines.join('\n');
+}
+function section(title) {
+  lines.push(`\n── ${title} ──`);
+  out.textContent = lines.join('\n');
+}
+
+const HEADER_BYTES = 44;
+const MAGIC = [0x50, 0x56, 0x4c, 0x54]; // "PVLT"
+
+function decodeHeader(bytes) {
+  if (bytes.length < HEADER_BYTES) throw new Error('ファイルが短すぎます');
+  for (let i = 0; i < 4; i++) {
+    if (bytes[i] !== MAGIC[i]) throw new Error('形式が違います');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, HEADER_BYTES);
+  const version = view.getUint16(4, false);
+  const kdfID = view.getUint16(6, false);
+  const iterations = view.getUint32(8, false);
+  if (version !== 1) throw new Error(`対応していない版: ${version}`);
+  if (kdfID !== 1) throw new Error(`対応していない鍵導出: ${kdfID}`);
+  if (iterations === 0) throw new Error('反復回数が 0');
+  return {
+    version, kdfID, iterations,
+    salt: bytes.slice(12, HEADER_BYTES),
+    raw: bytes.slice(0, HEADER_BYTES),
+  };
+}
+
+async function deriveKey(password, header) {
+  const material = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-512', salt: header.salt, iterations: header.iterations },
+    material, 256
+  );
+  return crypto.subtle.importKey(
+    'raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']
+  );
+}
+
+async function openVault(bytes, key, header) {
+  const body = bytes.slice(HEADER_BYTES);
+  const nonce = body.slice(0, 12);
+  const sealed = body.slice(12); // 暗号文 + 認証タグ。WebCrypto はこの並びを期待する
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: nonce, additionalData: header.raw, tagLength: 128 },
+    key, sealed
+  );
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+async function sealVault(payload, key, header) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce, additionalData: header.raw, tagLength: 128 },
+    key, plaintext
+  ));
+  const file = new Uint8Array(HEADER_BYTES + 12 + sealed.length);
+  file.set(header.raw, 0);
+  file.set(nonce, HEADER_BYTES);
+  file.set(sealed, HEADER_BYTES + 12);
+  return file;
+}
+
+function toBase64(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+try {
+  section('前提');
+  check('安全なコンテキストである（crypto.subtle が使える）', window.isSecureContext);
+  check('crypto.subtle が存在する', typeof crypto.subtle === 'object');
+  note(`URL: ${location.protocol}//${location.host}`);
+
+  section('Swift 版が作った保管庫を読む');
+  const response = await fetch('compat-vault.pvlt');
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  note(`ファイル: ${bytes.length} バイト`);
+
+  const header = decodeHeader(bytes);
+  check('ヘッダを読める', header.version === 1 && header.kdfID === 1);
+  check('反復回数が 400,000 と読める', header.iterations === 400000);
+  check('salt が 32 バイト', header.salt.length === 32);
+
+  const started = performance.now();
+  const key = await deriveKey('CompatCheck-2026-web', header);
+  const elapsed = (performance.now() - started) / 1000;
+  note(`鍵導出にかかった時間: ${elapsed.toFixed(2)} 秒`);
+  check('鍵導出が 0.05 秒以上（総当たり耐性として意味のある重さ）', elapsed > 0.05);
+
+  const payload = await openVault(bytes, key, header);
+  check('復号できた（＝鍵の導出も AAD も一致している）', !!payload);
+  check('スキーマ版を読める', payload.schemaVersion === 3);
+  check('項目が 2 件', payload.items.length === 2);
+
+  const login = payload.items.find(item => item.category === 'login');
+  const card = payload.items.find(item => item.category === 'creditCard');
+  check('ログイン項目のタイトルが一致', login.title === '互換性テスト');
+  check('絵文字と日本語を含むパスワードが完全一致',
+        login.fields.find(f => f.kind === 'password').value === 'S3cr3t!-値-🔐');
+  check('メモの改行が保たれている', login.notes === '改行を含む\nメモ');
+  check('タグが読める', JSON.stringify(login.tags) === JSON.stringify(['仕事']));
+  check('お気に入りの印が読める', login.isFavorite === true);
+  check('TOTP のシークレットが読める', login.oneTimePasswordSecret === 'JBSWY3DPEHPK3PXP');
+  check('日時が ISO8601 で読める', !Number.isNaN(Date.parse(login.createdAt)));
+  check('ゴミ箱に入っていない項目には trashedAt が無い', login.trashedAt === undefined);
+  check('カード番号が読める',
+        card.fields.find(f => f.kind === 'cardNumber').value === '4111111111111111');
+  check('カード種別の項目が読める', card.title === 'テストカード');
+
+  section('拒否すべきものを拒否する');
+  let rejected = false;
+  try {
+    await openVault(bytes, await deriveKey('間違ったパスワード', header), header);
+  } catch { rejected = true; }
+  check('間違ったパスワードを拒否', rejected);
+
+  const tampered = bytes.slice();
+  tampered[HEADER_BYTES + 20] ^= 0x01;
+  rejected = false;
+  try { await openVault(tampered, key, header); } catch { rejected = true; }
+  check('暗号文の 1 ビット改ざんを検知', rejected);
+
+  // 反復回数を 1 に書き換えるダウングレード攻撃。
+  // ヘッダが AAD に入っているので、鍵が合っても認証で弾かれる。
+  const downgraded = bytes.slice();
+  new DataView(downgraded.buffer).setUint32(8, 1, false);
+  rejected = false;
+  try {
+    const evilHeader = decodeHeader(downgraded);
+    await openVault(downgraded, await deriveKey('CompatCheck-2026-web', evilHeader), evilHeader);
+  } catch { rejected = true; }
+  check('反復回数の切り下げ（ダウングレード攻撃）を検知', rejected);
+
+  section('Web 版が書いた保管庫を Swift 版が読めるか');
+  // Swift の JSONDecoder の iso8601 は小数秒を受け付けないので、
+  // 書き出すときはミリ秒を落とす必要がある。
+  const isoNoMillis = date => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  check('日時からミリ秒を落とせる',
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(isoNoMillis(new Date())));
+
+  const modified = structuredClone(payload);
+  modified.items[0].title = 'Webから書いた項目';
+  modified.items[0].updatedAt = isoNoMillis(new Date());
+  const rewritten = await sealVault(modified, key, header);
+  check('書き出したファイルを自分で読み戻せる',
+        (await openVault(rewritten, key, header)).items[0].title === 'Webから書いた項目');
+  note('Swift 側での確認用（base64）:');
+  lines.push(toBase64(rewritten));
+  out.textContent = lines.join('\n');
+
+  section('ワンタイムパスワード（RFC 6238 公式テストベクタ）');
+  async function totp(secretAscii, time, digits, hash) {
+    const key = await crypto.subtle.importKey(
+      'raw', new TextEncoder().encode(secretAscii),
+      { name: 'HMAC', hash }, false, ['sign']
+    );
+    const counter = Math.floor(time / 30);
+    const message = new Uint8Array(8);
+    new DataView(message.buffer).setBigUint64(0, BigInt(counter), false);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, message));
+    const offset = mac[mac.length - 1] & 0x0f;
+    const truncated = ((mac[offset] & 0x7f) << 24) | (mac[offset + 1] << 16)
+                    | (mac[offset + 2] << 8) | mac[offset + 3];
+    return String(truncated % 10 ** digits).padStart(digits, '0');
+  }
+
+  const seed1 = '12345678901234567890';
+  const seed256 = '12345678901234567890123456789012';
+  const seed512 = '1234567890123456789012345678901234567890123456789012345678901234';
+  const vectors = [
+    [59, '94287082', '46119246', '90693936'],
+    [1111111109, '07081804', '68084774', '25091201'],
+    [1111111111, '14050471', '67062674', '99943326'],
+    [1234567890, '89005924', '91819424', '93441116'],
+    [2000000000, '69279037', '90698825', '38618901'],
+    [20000000000, '65353130', '77737706', '47863826'],
+  ];
+  let totpOK = true;
+  for (const [time, sha1, sha256, sha512] of vectors) {
+    const a = await totp(seed1, time, 8, 'SHA-1');
+    const b = await totp(seed256, time, 8, 'SHA-256');
+    const c = await totp(seed512, time, 8, 'SHA-512');
+    if (a !== sha1 || b !== sha256 || c !== sha512) {
+      totpOK = false;
+      note(`ずれ t=${time}: ${a}/${sha1} ${b}/${sha256} ${c}/${sha512}`);
+    }
+  }
+  check('RFC 6238 のテストベクタ 18 件すべてに一致（SHA1/256/512）', totpOK);
+
+  lines.push(`\n${failures === 0 ? 'すべて成功' : `${failures} 件失敗`}`);
+  out.textContent = lines.join('\n');
+} catch (error) {
+  lines.push(`\n例外で停止: ${error.message}`);
+  out.textContent = lines.join('\n');
+}
+</script>
+</body>
+</html>

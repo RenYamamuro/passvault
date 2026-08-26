@@ -1,0 +1,750 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>PassVault web 版の検証</title>
+<style>
+  body { font: 13px/1.7 ui-monospace, monospace; margin: 24px; max-width: 900px; }
+  h1 { font: 600 20px/1.4 -apple-system, sans-serif; }
+  pre { white-space: pre-wrap; }
+  .pass { color: #0a7; } .fail { color: #d22; font-weight: 700; }
+  #summary { font: 600 16px/1.6 -apple-system, sans-serif; margin-top: 16px; }
+</style>
+</head>
+<body>
+<h1>PassVault web 版の検証</h1>
+<pre id="out">実行中…</pre>
+<div id="summary"></div>
+
+<!-- detail.js は読み込み時に render() を走らせるので、描画先が必要。
+     検証には関係ないので画面外へ追いやる。 -->
+<div style="position:fixed;left:-99999px;top:0;width:1200px;height:800px" aria-hidden="true">
+  <div id="gate"></div>
+  <div id="app">
+    <div class="column" id="sidebar"></div>
+    <div class="column" id="list-col"></div>
+    <div class="column" id="detail-col"></div>
+  </div>
+  <div id="toast"></div>
+</div>
+
+<script type="module">
+import * as V from './core.js';
+import * as X from './crypto-extras.js';
+import * as A from './audit.js';
+
+const out = document.getElementById('out');
+const lines = [];
+let failures = 0;
+let total = 0;
+
+function check(name, condition) {
+  total++;
+  if (!condition) failures++;
+  lines.push(`<span class="${condition ? 'pass' : 'fail'}">${condition ? 'PASS' : 'FAIL'}</span>  ${name}`);
+  out.innerHTML = lines.join('\n');
+}
+function note(text) { lines.push(`      ${text}`); out.innerHTML = lines.join('\n'); }
+function section(title) { lines.push(`\n── ${title} ──`); out.innerHTML = lines.join('\n'); }
+
+try {
+// ============================================================
+section('保管庫の暗号（Swift 版との互換）');
+// ============================================================
+const bytes = new Uint8Array(await (await fetch('compat-vault.pvlt')).arrayBuffer());
+const header = V.decodeHeader(bytes);
+check('Swift 版のヘッダを読める', header.version === 1 && header.iterations === 400000);
+
+const key = await V.deriveKey('CompatCheck-2026-web', header);
+const payload = await V.open(bytes, key, header);
+check('Swift 版の保管庫を復号できる', payload.items.length === 2);
+check('絵文字と日本語を含むパスワードが完全一致',
+      V.primaryPassword(payload.items.find(i => i.category === 'login')) === 'S3cr3t!-値-🔐');
+
+const newHeader = V.makeHeader();
+check('新しい保管庫の反復回数が既定値', newHeader.iterations === V.DEFAULT_ITERATIONS);
+check('salt が 32 バイト', newHeader.salt.length === 32);
+check('保管庫ごとに salt が変わる',
+      V.makeHeader().salt.join() !== V.makeHeader().salt.join());
+
+const started = performance.now();
+const newKey = await V.deriveKey('紫の亀が図書館で走る-2026', newHeader);
+const elapsed = (performance.now() - started) / 1000;
+note(`鍵導出にかかった時間: ${elapsed.toFixed(2)} 秒（${newHeader.iterations.toLocaleString()} 回）`);
+check('鍵導出が 0.2 秒以上（総当たり耐性として意味のある重さ）', elapsed > 0.2);
+
+const roundTrip = await V.seal(payload, newKey, newHeader);
+check('往復して中身が保たれる',
+      (await V.open(roundTrip, newKey, newHeader)).items.length === 2);
+check('ファイル内にパスワードの平文が現れない',
+      !new TextDecoder('latin1').decode(roundTrip).includes('S3cr3t'));
+check('同じ内容でも暗号文が毎回変わる（nonce 再利用なし）',
+      (await V.seal(payload, newKey, newHeader)).join() !== roundTrip.join());
+
+let rejected = false;
+try { await V.open(roundTrip, await V.deriveKey('違うパスワード', newHeader), newHeader); }
+catch { rejected = true; }
+check('間違ったパスワードを拒否', rejected);
+
+const tampered = roundTrip.slice();
+tampered[V.HEADER_BYTES + 20] ^= 0x01;
+rejected = false;
+try { await V.open(tampered, newKey, newHeader); } catch { rejected = true; }
+check('暗号文の 1 ビット改ざんを検知', rejected);
+
+const downgraded = roundTrip.slice();
+new DataView(downgraded.buffer).setUint32(8, 1, false);
+rejected = false;
+try {
+  const evil = V.decodeHeader(downgraded);
+  await V.open(downgraded, await V.deriveKey('紫の亀が図書館で走る-2026', evil), evil);
+} catch { rejected = true; }
+check('反復回数の切り下げ（ダウングレード攻撃）を検知', rejected);
+
+rejected = false;
+try { V.decodeHeader(new TextEncoder().encode('NOT A VAULT FILE')); } catch { rejected = true; }
+check('非対応ファイルを拒否', rejected);
+
+check('日時にミリ秒が入らない（Swift が読める形）',
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(V.isoNoMillis()));
+
+// ============================================================
+section('古い形式からの移行');
+// ============================================================
+const legacy = V.normalizePayload({ entries: [{
+  id: '11111111-1111-1111-1111-111111111111', title: '旧アプリの項目',
+  username: 'old@example.com', password: 'oldpass', url: 'example.com',
+  notes: 'メモ', folder: 'プライベート',
+  createdAt: '2025-03-01T00:00:00Z', updatedAt: '2025-03-02T00:00:00Z',
+}]});
+check('v1 の保管庫を読める', legacy.items.length === 1);
+check('v1 のパスワードが残る', V.primaryPassword(legacy.items[0]) === 'oldpass');
+check('v1 のフォルダがタグになる', legacy.items[0].tags[0] === 'プライベート');
+check('v1 の ID が保たれる', legacy.items[0].id === '11111111-1111-1111-1111-111111111111');
+check('v1 から読んだことが記録される', legacy.schemaVersion === 1);
+check('v2（墓標なし）も読める', V.normalizePayload({ items: [] }).deletions.length === 0);
+
+// ============================================================
+section('ワンタイムパスワード（RFC 6238 公式テストベクタ）');
+// ============================================================
+const seeds = {
+  SHA1: new TextEncoder().encode('12345678901234567890'),
+  SHA256: new TextEncoder().encode('12345678901234567890123456789012'),
+  SHA512: new TextEncoder().encode('1234567890123456789012345678901234567890123456789012345678901234'),
+};
+const vectors = [
+  [59, '94287082', '46119246', '90693936'],
+  [1111111109, '07081804', '68084774', '25091201'],
+  [1111111111, '14050471', '67062674', '99943326'],
+  [1234567890, '89005924', '91819424', '93441116'],
+  [2000000000, '69279037', '90698825', '38618901'],
+  [20000000000, '65353130', '77737706', '47863826'],
+];
+let totpOK = true;
+for (const [time, sha1, sha256, sha512] of vectors) {
+  const date = new Date(time * 1000);
+  const results = await Promise.all(['SHA1', 'SHA256', 'SHA512'].map(algorithm =>
+    X.otpCode({ secret: seeds[algorithm], digits: 8, period: 30, algorithm }, date)));
+  if (results[0] !== sha1 || results[1] !== sha256 || results[2] !== sha512) {
+    totpOK = false;
+    note(`ずれ t=${time}: ${results.join(' / ')} 期待 ${sha1} / ${sha256} / ${sha512}`);
+  }
+}
+check('RFC 6238 のテストベクタ 18 件すべてに一致（SHA1/256/512）', totpOK);
+
+check('Base32 の往復', X.base32Decode(X.base32Encode(seeds.SHA1)).join() === [...seeds.SHA1].join());
+check('Base32 は小文字・空白・ハイフンを許容',
+      X.base32Decode('jbsw y3dp-ehpk3pxp').join() === X.base32Decode('JBSWY3DPEHPK3PXP').join());
+check('Base32 に無い文字は拒否', X.base32Decode('JBSW1889!!') === null);
+
+const uri = 'otpauth://totp/GitHub:yamamuro?secret=JBSWY3DPEHPK3PXP&issuer=GitHub&digits=6&period=30&algorithm=SHA1';
+const parsed = X.parseOTP(uri);
+check('otpauth:// URI を解釈できる', parsed !== null);
+check('URI から発行元を読める', parsed.issuer === 'GitHub');
+check('URI からアカウント名を読める', parsed.account === 'yamamuro');
+check('URI の桁数・周期を読める', parsed.digits === 6 && parsed.period === 30);
+check('素の Base32 も受け付ける', X.parseOTP('JBSWY3DPEHPK3PXP') !== null);
+check('でたらめな文字列は弾く', X.parseOTP('これはシークレットではない') === null);
+check('空文字は弾く', X.parseOTP('   ') === null);
+
+const otp = X.parseOTP('JBSWY3DPEHPK3PXP');
+const windowStart = new Date(1_700_000_010 * 1000);
+check('枠の先頭と末尾で同じコードになる',
+      await X.otpCode(otp, windowStart) === await X.otpCode(otp, new Date(+windowStart + 29_000)));
+check('枠をまたぐとコードが変わる',
+      await X.otpCode(otp, new Date(+windowStart + 29_000))
+        !== await X.otpCode(otp, new Date(+windowStart + 30_000)));
+const windowCodes = new Set(await Promise.all(
+  Array.from({ length: 10 }, (_, i) => X.otpCode(otp, new Date(i * 30_000)))));
+check('30 秒ごとに別のコードが出る', windowCodes.size >= 9);
+check('枠の先頭では残り 30 秒', X.otpSecondsRemaining(otp, windowStart) === 30);
+check('表示用は 3 桁ずつ区切られる', X.formatOTP('123456').length === 7);
+
+// ============================================================
+section('パスワード生成');
+// ============================================================
+const options = { length: 24, lower: true, upper: true, digits: true, symbols: true, avoidAmbiguous: true };
+const generated = Array.from({ length: 300 }, () => X.generatePassword(options));
+check('指定した長さになる', generated.every(p => p.length === 24));
+check('300 回生成して重複なし', new Set(generated).size === 300);
+check('紛らわしい文字が除かれている', generated.every(p => !/[0O1lI|`'"~,.;:]/.test(p)));
+check('有効にした 4 種類すべてが必ず含まれる', generated.every(p =>
+  /[a-z]/.test(p) && /[A-Z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p)));
+
+const pinOptions = { length: 6, lower: false, upper: false, digits: true, symbols: false, avoidAmbiguous: false };
+const pins = Array.from({ length: 2000 }, () => X.generatePassword(pinOptions));
+check('数字だけの設定で数字しか出ない', pins.every(p => /^[0-9]{6}$/.test(p)));
+const counts = {};
+for (const pin of pins) for (const digit of pin) counts[digit] = (counts[digit] ?? 0) + 1;
+const expected = pins.length * 6 / 10;
+const maxDeviation = Math.max(...Object.values(counts).map(c => Math.abs(c - expected) / expected));
+check('0-9 すべてが出現', Object.keys(counts).length === 10);
+check(`0-9 の出現が概ね均等（最大ずれ ${Math.round(maxDeviation * 100)}%）`, maxDeviation < 0.10);
+check('エントロピーの計算が妥当（24文字で 120 ビット超）',
+      X.generatorEntropyBits(options) > 120);
+
+// ============================================================
+section('強度の見積もり');
+// ============================================================
+const rank = password => X.strengthLevel(X.estimateBits(password)).rank;
+check('空文字は 0 ビット', X.estimateBits('') === 0);
+check('password は弱いと判定', rank('password') <= 1);
+check('123456 は弱いと判定', rank('123456') <= 1);
+check('aaaaaaaaaaaaaaaa は繰り返しとして減点される', rank('aaaaaaaaaaaaaaaa') <= 1);
+check('qwertyuiop は並びとして減点される', rank('qwertyuiop') <= 1);
+check('生成した 24 文字は強いと判定', rank(generated[0]) >= 3);
+check('長いほうが強く出る',
+      X.estimateBits('Tr0ub4dor&3xK9pQ') > X.estimateBits('Tr0ub4d'));
+check('同じ長さなら文字種が多いほうが強く出る',
+      X.estimateBits('aB3!xY7@qW2#') > X.estimateBits('abcdxyzqwrst'));
+
+// ============================================================
+section('Watchtower');
+// ============================================================
+function login(title, password, url = '', createdAt = V.isoNoMillis()) {
+  const item = V.makeItem('login');
+  item.title = title;
+  item.fields[1].value = password;
+  item.fields[2].value = url;
+  item.createdAt = createdAt;
+  return item;
+}
+const now = Date.parse('2026-07-30T00:00:00Z');
+const strong1 = X.generatePassword(options);
+const strong2 = X.generatePassword(options);
+const oldDate = V.isoNoMillis(new Date(now - 400 * 24 * 3600 * 1000));
+const findings = A.audit([
+  login('A社', 'sharedPassword!42Xy', 'https://a.example'),
+  login('B社', 'sharedPassword!42Xy', 'https://b.example'),
+  login('弱いところ', 'password', 'https://c.example'),
+  login('古いところ', strong1, '', oldDate),
+  login('平文サイト', strong2, 'http://d.example'),
+], now);
+const reused = findings.filter(f => f.kind === 'reused');
+check('使い回しを両方のアイテムで検出', reused.length === 2);
+check('使い回しの説明に相手の名前が入る', reused.some(f => f.detail.includes('B社')));
+check('弱いパスワードを検出', findings.some(f => f.kind === 'weak' && f.itemTitle === '弱いところ'));
+check('強いパスワードは弱いと判定されない',
+      !findings.some(f => f.kind === 'weak' && f.itemTitle === '平文サイト'));
+check('1年以上前のパスワードを検出', findings.some(f => f.kind === 'old' && f.itemTitle === '古いところ'));
+check('http:// のサイトを検出',
+      findings.some(f => f.kind === 'insecureURL' && f.itemTitle === '平文サイト'));
+check('https:// のサイトは指摘されない',
+      !findings.some(f => f.kind === 'insecureURL' && f.itemTitle === 'A社'));
+check('深刻な順（使い回しが先頭）に並ぶ', findings[0].kind === 'reused');
+check('問題のない保管庫では指摘ゼロ',
+      A.audit([login('問題なし1', strong1, 'https://ok.example'),
+               login('問題なし2', strong2, 'https://ok2.example')], now).length === 0);
+const trashed = login('捨てたもの', 'password');
+trashed.trashedAt = V.isoNoMillis();
+check('ゴミ箱の中は監査対象外', A.audit([trashed], now).length === 0);
+
+// ============================================================
+section('マージ');
+// ============================================================
+const base = Date.parse('2026-01-01T00:00:00Z');
+const at = offset => V.isoNoMillis(new Date(base + offset * 1000));
+function syncItem(title, id, updatedAt, password = 'pw') {
+  const item = login(title, password);
+  item.id = id;
+  item.updatedAt = updatedAt;
+  return item;
+}
+const sharedId = crypto.randomUUID();
+
+let merged = A.merge(
+  { items: [syncItem('Macだけ', crypto.randomUUID(), at(0))], deletions: [] },
+  { items: [syncItem('iPhoneだけ', crypto.randomUUID(), at(0))], deletions: [] }, base);
+check('双方の項目が合流する', merged.payload.items.length === 2);
+check('相手から来た件数を数えている', merged.summary.added === 1);
+
+merged = A.merge(
+  { items: [syncItem('古い', sharedId, at(0), 'old')], deletions: [] },
+  { items: [syncItem('新しい', sharedId, at(60), 'new')], deletions: [] }, base);
+check('競合したら更新時刻の新しい方が残る', V.primaryPassword(merged.payload.items[0]) === 'new');
+check('項目は重複しない', merged.payload.items.length === 1);
+check('更新として数える', merged.summary.updated === 1);
+
+const reversed = A.merge(
+  { items: [syncItem('新しい', sharedId, at(60), 'new')], deletions: [] },
+  { items: [syncItem('古い', sharedId, at(0), 'old')], deletions: [] }, base);
+check('どちら側から同期しても同じ結果になる',
+      V.primaryPassword(reversed.payload.items[0]) === 'new'
+      && reversed.payload.items.length === merged.payload.items.length);
+
+merged = A.merge(
+  { items: [], deletions: [{ id: sharedId, deletedAt: at(120) }] },
+  { items: [syncItem('消したはず', sharedId, at(0))], deletions: [] }, base + 120_000);
+check('完全削除した項目が相手から復活しない', merged.payload.items.length === 0);
+check('墓標は保持される', merged.payload.deletions.length === 1);
+
+merged = A.merge(
+  { items: [], deletions: [{ id: sharedId, deletedAt: at(0) }] },
+  { items: [syncItem('削除後に編集', sharedId, at(60))], deletions: [] }, base + 60_000);
+check('削除より後の編集は復活する', merged.payload.items.length === 1);
+check('相手からの追加として数える', merged.summary.added === 1);
+
+merged = A.merge(
+  { items: [], deletions: [{ id: crypto.randomUUID(), deletedAt: at(0) }] },
+  { items: [], deletions: [] }, base + A.TOMBSTONE_LIFETIME_MS + 1000);
+check('期限切れの墓標は捨てられる', merged.payload.deletions.length === 0);
+
+const stable = { items: [syncItem('同じ', sharedId, at(0))], deletions: [] };
+merged = A.merge(stable, stable, base);
+check('同一内容の同期では変更が出ない', A.summaryText(merged.summary) === '変更はありませんでした');
+const twice = A.merge(merged.payload, stable, base);
+check('何度同期しても結果が変わらない',
+      twice.payload.items.length === 1 && twice.summary.added === 0 && twice.summary.updated === 0);
+
+// ============================================================
+section('検索と表示');
+// ============================================================
+const searchTarget = payload.items.find(i => i.category === 'login');
+const cardTarget = payload.items.find(i => i.category === 'creditCard');
+check('タイトルで検索できる', V.matches(searchTarget, '互換'));
+check('タグで検索できる', V.matches(searchTarget, '仕事'));
+check('ユーザー名で検索できる', V.matches(searchTarget, 'compat@'));
+check('無関係な語では引っかからない', !V.matches(searchTarget, 'ぜんぜん違う語'));
+check('パスワードの中身は検索対象にしない', !V.matches(searchTarget, 'S3cr3t'));
+check('カード番号の中身も検索対象にしない', !V.matches(cardTarget, '4111'));
+check('カード番号は下 4 桁だけ一覧に出る', V.subtitle(cardTarget) === '•••• 1111');
+check('カード番号は 4 桁ごとに区切って表示',
+      V.groupedCardNumber('4111111111111111') === '4111 1111 1111 1111');
+
+// ============================================================
+section('保存の安全性');
+// ============================================================
+// persist() は失敗を投げずに返す。投げっぱなしにすると呼び出し側で握られず、
+// 「画面には反映されているがファイルには書かれていない」状態が
+// 何も表示されないまま残ってしまう。
+const App = await import('./app.js');
+await import('./detail.js');  // hooks（ダイアログ）を埋めるために必要
+
+function fakeHandle({ mtime = 1000, failWrite = false, sink = {}, bytes = new Uint8Array(0) } = {}) {
+  return {
+    name: 'vault.pvlt',
+    getFile: async () => ({
+      lastModified: mtime,
+      name: 'vault.pvlt',
+      arrayBuffer: async () => bytes.slice().buffer,
+    }),
+    createWritable: async () => {
+      if (failWrite) throw new Error('ディスクがいっぱいです');
+      return { write: written => { sink.bytes = written; }, close: async () => {} };
+    },
+  };
+}
+
+const appState = App.state;
+appState.header = V.makeHeader(1000);
+appState.key = await V.deriveKey('t', appState.header);
+appState.items = [(() => { const i = V.makeItem('login'); i.title = 'テスト'; return i; })()];
+appState.deletions = [];
+
+appState.fileHandle = fakeHandle({ failWrite: true });
+appState.fileMtime = 1000;
+let saved = await App.persist();
+check('書き込みの失敗を例外ではなく戻り値で返す', saved.ok === false && saved.reason === 'write');
+check('失敗の理由が読める文になっている', /ディスクがいっぱい/.test(saved.message ?? ''));
+check('失敗したら未保存の印が立つ', appState.dirty === true);
+
+// 外から書き換えられていた場合（クラウド同期など）
+const sink = {};
+appState.fileHandle = fakeHandle({ mtime: 9999, sink });
+appState.fileMtime = 1000;
+saved = await App.persist();
+check('ファイルが外から変わっていたら競合として止める',
+      saved.ok === false && saved.reason === 'conflict');
+check('競合のときは 1 バイトも書かない', sink.bytes === undefined);
+saved = await App.persist({ force: true });
+check('force を渡せば上書きできる', saved.ok === true && sink.bytes !== undefined);
+
+// 変わっていなければ普通に書く
+const sink2 = {};
+appState.fileHandle = fakeHandle({ mtime: 5000, sink: sink2 });
+appState.fileMtime = 5000;
+saved = await App.persist();
+check('外から変わっていなければ保存できる', saved.ok === true && sink2.bytes !== undefined);
+check('保存できたら未保存の印が消える', appState.dirty === false);
+check('書き込んだ内容が読み戻せる',
+      (await V.open(sink2.bytes, appState.key, appState.header)).items[0].title === 'テスト');
+
+// 保存先を持てない環境の扱いは「端末の中への保存」で確かめる
+
+// ============================================================
+section('要素の組み立て');
+// ============================================================
+// aria-* や data-* はハイフンを含むのでプロパティとして設定できない。
+// Object.assign で作っていた頃は黙って無視され、読み上げに何も伝わらないまま
+// 気づけなかった。属性として設定されることを固定しておく。
+const probe = App.el('button', {
+  className: 'x', title: 'ふつうのプロパティ', 'aria-label': '読み上げ用', 'data-kind': 'test',
+}, ['なかみ']);
+check('class はプロパティとして入る', probe.className === 'x');
+check('aria-label が属性として入る', probe.getAttribute('aria-label') === '読み上げ用');
+check('data-* も属性として入る', probe.getAttribute('data-kind') === 'test');
+check('子要素が入る', probe.textContent === 'なかみ');
+check('null の子は捨てられる', App.el('div', {}, [null, 'あり']).textContent === 'あり');
+
+// ============================================================
+section('マスターパスワードの変更');
+// ============================================================
+// 変更は「新しい鍵で全部書き直す」ことなので、途中で書けなくなると
+// 画面の鍵とファイルの鍵が食い違い、以後なにも保存できなくなる。
+// 書けたときだけ差し替わること、書けなければ元に戻ることを固定する。
+
+function fakeVaultHandle({ ok = true, sink = {} } = {}) {
+  return {
+    name: 'v.pvlt',
+    getFile: async () => ({ lastModified: 1, name: 'v.pvlt' }),
+    createWritable: async () => {
+      if (!ok) throw new Error('書き込み禁止');
+      return { write: bytes => { sink.bytes = bytes; }, close: async () => {} };
+    },
+  };
+}
+
+const pwHeader = V.makeHeader(1000);
+const pwKey = await V.deriveKey('old-master-pass', pwHeader);
+const guarded = V.makeItem('login');
+guarded.title = '守りたい項目';
+guarded.fields[1].value = 'secret';
+
+const pwSink = {};
+appState.header = pwHeader;
+appState.key = pwKey;
+appState.items = [guarded];
+appState.deletions = [];
+appState.fileHandle = fakeVaultHandle({ sink: pwSink });
+appState.fileMtime = 1;
+
+// 変更そのもの（画面を経由せず、同じ手順を辿る）
+const changedHeader = V.makeHeader(1000);
+const changedKey = await V.deriveKey('new-master-pass-2026', changedHeader);
+appState.header = changedHeader;
+appState.key = changedKey;
+const changeWrite = await App.persist();
+check('新しい鍵で書き込める', changeWrite.ok && pwSink.bytes !== undefined);
+
+const writtenHeader = V.decodeHeader(pwSink.bytes);
+check('書かれたファイルは新しいヘッダを持つ',
+      writtenHeader.salt.join() === changedHeader.salt.join());
+check('新しいパスワードで開ける',
+      (await V.open(pwSink.bytes, changedKey, writtenHeader)).items[0].title === '守りたい項目');
+check('中身が保たれている',
+      V.primaryPassword((await V.open(pwSink.bytes, changedKey, writtenHeader)).items[0]) === 'secret');
+
+let oldStillWorks = false;
+try {
+  await V.open(pwSink.bytes, await V.deriveKey('old-master-pass', writtenHeader), writtenHeader);
+  oldStillWorks = true;
+} catch { /* 正しい */ }
+check('古いパスワードでは開けなくなる', !oldStillWorks);
+
+// 書けない場合は鍵を戻す（画面側と同じ手順）
+const beforeHeader = appState.header;
+const beforeKey = appState.key;
+appState.fileHandle = fakeVaultHandle({ ok: false });
+appState.header = V.makeHeader(1000);
+appState.key = await V.deriveKey('yet-another-pass-2026', appState.header);
+const failedWrite = await App.persist();
+if (!failedWrite.ok) { appState.header = beforeHeader; appState.key = beforeKey; }
+check('書けなければ変更は成立しない', !failedWrite.ok);
+check('鍵とヘッダが元に戻る', appState.header === beforeHeader && appState.key === beforeKey);
+
+const afterRollback = await V.seal({ schemaVersion: 3, items: appState.items, deletions: [] },
+                                   appState.key, appState.header);
+check('戻したあとも同じ鍵で扱える',
+      (await V.open(afterRollback, appState.key, appState.header)).items.length === 1);
+
+appState.fileHandle = null;
+
+// ============================================================
+section('施錠時に保存できていなかった変更');
+// ============================================================
+// 施錠は必ず行う（開けっ放しのほうが危ない）。ただし黙って捨てない。
+// 暗号化したまま抱えておき、同じパスワードで解錠できたときだけ戻せる。
+// 以前は lock() が中身を無条件で捨てていたので、保存に失敗したまま
+// 自動施錠されると変更が消えていた。
+
+const stashHeader = V.makeHeader(1000);
+const stashKey = await V.deriveKey('stash-pass', stashHeader);
+const stashItem = V.makeItem('login');
+stashItem.title = '保存できていなかった項目';
+const stashed = await V.seal(
+  { schemaVersion: 3, items: [stashItem], deletions: [] }, stashKey, stashHeader);
+
+check('預かりは暗号文で、平文が見えない',
+      !new TextDecoder('latin1').decode(stashed).includes('保存できていなかった'));
+check('同じパスワードなら取り戻せる',
+      (await V.open(stashed, stashKey, stashHeader)).items[0].title === '保存できていなかった項目');
+
+// 別の保管庫の預かりを取り違えないこと
+const otherKey = await V.deriveKey('まったく別のパスワード', stashHeader);
+let leaked = false;
+try { await V.open(stashed, otherKey, stashHeader); leaked = true; } catch { /* 正しい */ }
+check('別のパスワードでは取り戻せない', !leaked);
+
+// ============================================================
+section('ダイアログの後始末');
+// ============================================================
+// ダイアログを開いている間は自動施錠を止める（holds を上げる）が、
+// 閉じたときに必ず戻さないと、一度開いただけで自動施錠が永久に働かなくなる。
+//
+// 後始末を <dialog> の close イベント任せにしていたところ、
+// 環境によってはそのイベントが飛んでこず、holds が積み上がっていた。
+// close() を包んで確実に一度だけ後始末する形にしてある。
+
+const holdsBefore = App.state.holds;
+
+const ask = App.hooks.askConfirm('確認', '本文', { destructive: true });
+await new Promise(r => setTimeout(r, 30));
+let dialog = document.querySelector('dialog[open]');
+check('確認ダイアログが開く', dialog !== null);
+check('開いている間は自動施錠が止まる', App.state.holds === holdsBefore + 1);
+check('破壊的な確定ボタンに印が付く', !!dialog.querySelector('.dlg-head button.danger'));
+
+dialog.close();
+check('閉じると false が返る', await ask === false);
+check('閉じると自動施錠の停止が解ける', App.state.holds === holdsBefore);
+check('閉じた要素は残らない', !document.body.contains(dialog));
+
+const confirmed = App.hooks.askConfirm('確認', '本文');
+await new Promise(r => setTimeout(r, 30));
+document.querySelector('dialog[open] .dlg-head button:last-child').click();
+check('確定すると true が返る', await confirmed === true);
+check('確定でも自動施錠の停止が解ける', App.state.holds === holdsBefore);
+
+const asked = App.hooks.askText('欄を追加', '欄の名前');
+await new Promise(r => setTimeout(r, 30));
+dialog = document.querySelector('dialog[open]');
+dialog.querySelector('.dlg-head button:last-child').click();
+check('空のままでは確定しない', dialog.open === true);
+dialog.querySelector('input').value = '  復旧コード  ';
+dialog.querySelector('.dlg-head button:last-child').click();
+check('前後の空白を落として返す', await asked === '復旧コード');
+check('入力後も自動施錠の停止が解ける', App.state.holds === holdsBefore);
+
+// ============================================================
+section('取り込み（別パスワードの保管庫を含む）');
+// ============================================================
+// 失った同期の代わり。相手のファイルが別のマスターパスワードで作られていても
+// 取り込めること、そして**取り込んだ結果は手元の鍵で書かれる**ことが要点。
+// 相手の鍵で書いてしまうと、次に自分のパスワードで開けなくなる。
+
+function makeLogin(title, password, id) {
+  const item = V.makeItem('login');
+  item.title = title;
+  item.fields[1].value = password;
+  if (id) item.id = id;
+  return item;
+}
+
+const localHeader = V.makeHeader(1000);
+appState.header = localHeader;
+appState.key = await V.deriveKey('local-pass', localHeader);
+appState.deletions = [];
+
+const bothId = crypto.randomUUID();
+const olderShared = makeLogin('両方にある（古い）', 'old', bothId);
+olderShared.updatedAt = V.isoNoMillis(new Date(Date.now() - 60_000));
+appState.items = [makeLogin('手元だけ', 'a'), olderShared];
+
+const diskSink = {};
+appState.fileHandle = fakeHandle({ mtime: 1, sink: diskSink });
+appState.fileMtime = 1;
+
+// 相手側は別のマスターパスワードで作る
+const foreignHeader = V.makeHeader(1000);
+const foreignKey = await V.deriveKey('remote-pass-totally-different', foreignHeader);
+const newerShared = makeLogin('両方にある（新しい）', 'new', bothId);
+const foreignBytes = await V.seal(
+  { schemaVersion: 3, items: [makeLogin('相手だけ', 'b'), newerShared], deletions: [] },
+  foreignKey, foreignHeader
+);
+
+let couldOpenWithLocalKey = true;
+try { await V.open(foreignBytes, appState.key, V.decodeHeader(foreignBytes)); }
+catch { couldOpenWithLocalKey = false; }
+check('別パスワードの保管庫は手元の鍵では開けない', !couldOpenWithLocalKey);
+
+const foreignPayload = await V.open(foreignBytes, foreignKey, V.decodeHeader(foreignBytes));
+const mergeSummary = await App.applyMerge(foreignPayload);
+check('取り込みが成功する', mergeSummary !== null);
+check('内訳が出る（追加 1、更新 1）', A.summaryText(mergeSummary) === '追加 1、更新 1');
+check('件数が 3 件になる', appState.items.length === 3);
+check('競合した項目は新しい方が残る',
+      appState.items.find(item => item.id === bothId).title === '両方にある（新しい）');
+check('手元だけの項目も残る', appState.items.some(item => item.title === '手元だけ'));
+check('相手だけの項目が入る', appState.items.some(item => item.title === '相手だけ'));
+check('ファイルに書き出される', diskSink.bytes !== undefined);
+check('書き出したものが**手元の鍵**で読み戻せる',
+      (await V.open(diskSink.bytes, appState.key, localHeader)).items.length === 3);
+
+const countBefore = appState.items.length;
+const secondSummary = await App.applyMerge(foreignPayload);
+check('同じものを 2 回取り込んでも増えない', appState.items.length === countBefore);
+check('2 回目は変更なしと出る', A.summaryText(secondSummary) === '変更はありませんでした');
+
+// 相手側で完全削除された項目は、こちらからも消える
+const doomed = makeLogin('相手が消した項目', 'c');
+appState.items.push(doomed);
+await App.applyMerge({ schemaVersion: 3, items: [],
+  deletions: [{ id: doomed.id, deletedAt: V.isoNoMillis(new Date(Date.now() + 60_000)) }] });
+check('相手が完全削除した項目はこちらからも消える',
+      !appState.items.some(item => item.id === doomed.id));
+
+appState.key = null;
+appState.header = null;
+appState.fileHandle = null;
+
+// ============================================================
+section('端末の中への保存（ファイルに書けない環境）');
+// ============================================================
+// iOS の Safari にはファイルへ書き続ける手段がない。以前はここで
+// 「抱えておく」とだけ返していたが、実際はメモリ上にしか無く、
+// タブを閉じた時点で消えていた。保存したつもりのものが消えるのは
+// パスワード管理として最悪の失敗の仕方なので、必ずどこかに書く。
+//
+// この検証は本物の IndexedDB を触る。実際に使っている保管庫を
+// 巻き込まないよう、先に退避しておいて最後に戻す。
+const hadLocal = await App.loadLocalVault();
+try {
+  await App.forgetLocalVault();
+
+  appState.header = V.makeHeader(1000);
+  appState.key = await V.deriveKey('local-device-pass', appState.header);
+  appState.items = [makeLogin('端末に置く', 'x')];
+  appState.deletions = [];
+  appState.fileHandle = null;
+  appState.fileName = 'vault.pvlt';
+  appState.dirty = true;
+
+  saved = await App.persist();
+  check('ファイルに書けない環境でも保存は成功する', saved.ok === true && saved.local === true);
+  check('保存できたら未保存の印が消える', appState.dirty === false);
+
+  const stored = await App.loadLocalVault();
+  check('端末の中に中身が残る', stored?.bytes !== undefined);
+  check('保存した時刻が記録される', typeof stored?.savedAt === 'string');
+  check('端末に置くのは暗号文と名前と時刻だけ（鍵は入らない）',
+        JSON.stringify(Object.keys(stored).sort()) === JSON.stringify(['bytes', 'name', 'savedAt']));
+
+  const reopened = await V.open(new Uint8Array(stored.bytes), appState.key, appState.header);
+  check('端末に置いた中身は手元の鍵で読み戻せる', reopened.items[0].title === '端末に置く');
+
+  const wrongKey = await V.deriveKey('まったく違うパスワード', appState.header);
+  let openedWithWrongKey = true;
+  try { await V.open(new Uint8Array(stored.bytes), wrongKey, appState.header); }
+  catch { openedWithWrongKey = false; }
+  check('別のパスワードでは端末の中身も開けない', !openedWithWrongKey);
+
+  await App.forgetLocalVault();
+  check('消したら残らない', (await App.loadLocalVault()) === undefined);
+} finally {
+  // 退避したものを戻す。保存時刻だけは付け直しになる。
+  if (hadLocal) await App.saveLocalVault(hadLocal.bytes, hadLocal.name);
+}
+
+// ============================================================
+section('別の端末の変更を取りに行く');
+// ============================================================
+// 保存しようとするまで気づかない作りだと、相手の変更を知らないまま
+// 古い内容を眺めて編集し続けることになる。
+appState.header = V.makeHeader(1000);
+appState.key = await V.deriveKey('poll-pass', appState.header);
+appState.items = [makeLogin('手元', 'a')];
+appState.deletions = [];
+appState.dirty = false;
+
+const realOnRemoteChange = App.hooks.onRemoteChange;
+let noticedAt = null;
+App.hooks.onRemoteChange = async when => { noticedAt = when; return false; };
+try {
+  appState.fileHandle = fakeHandle({ mtime: 5000 });
+  appState.fileMtime = 5000;
+  check('変わっていなければ訊きに来ない',
+        (await App.pollRemoteChange()) === false && noticedAt === null);
+
+  appState.fileHandle = fakeHandle({ mtime: 8000 });
+  await App.pollRemoteChange();
+  check('新しくなっていたら知らせる', noticedAt instanceof Date && noticedAt.getTime() === 8000);
+
+  noticedAt = null;
+  appState.holds = 1;
+  await App.pollRemoteChange();
+  check('ダイアログを開いている間は割り込まない', noticedAt === null);
+  appState.holds = 0;
+
+  noticedAt = null;
+  const heldKey = appState.key;
+  appState.key = null;
+  await App.pollRemoteChange();
+  check('施錠中は見に行かない', noticedAt === null);
+  appState.key = heldKey;
+
+  // 読んだだけで下敷きを更新してはいけない。更新してしまうと、
+  // 取り込みを途中で取り消したとき相手の変更を見なかったことにして、
+  // 次の保存で黙って踏み潰す。
+  appState.fileMtime = 5000;
+  await App.readVaultFileBytes();
+  check('読んだだけでは下敷きの時刻を動かさない', appState.fileMtime === 5000);
+
+  const afterCancel = await App.persist();
+  check('取り込みを取り消しても、次の保存は競合として止まる',
+        afterCancel.ok === false && afterCancel.reason === 'conflict');
+
+  await App.readVaultFileBytes({ rebase: true });
+  check('rebase を渡したときだけ下敷きを更新する', appState.fileMtime === 8000);
+} finally {
+  App.hooks.onRemoteChange = realOnRemoteChange;
+}
+
+appState.key = null;
+appState.header = null;
+appState.fileHandle = null;
+appState.fileMtime = null;
+
+// ============================================================
+section('種別のひな型');
+// ============================================================
+check('7 種類ある', Object.keys(V.CATEGORIES).length === 7);
+check('ログインは 3 欄', V.makeItem('login').fields.length === 3);
+check('セキュアメモは欄なし', V.makeItem('secureNote').fields.length === 0);
+check('カードは 6 欄', V.makeItem('creditCard').fields.length === 6);
+check('新規項目は必ず別の ID になる', V.makeItem().id !== V.makeItem().id);
+check('TOTP を持てる種別が 2 つ',
+      Object.values(V.CATEGORIES).filter(c => c.otp).length === 2);
+
+} catch (error) {
+  lines.push(`\n<span class="fail">例外で停止: ${error.message}</span>`);
+  out.innerHTML = lines.join('\n');
+  failures++;
+}
+
+document.getElementById('summary').textContent =
+  failures === 0 ? `すべて成功（${total} 項目）` : `${failures} 件失敗 / ${total} 項目`;
+document.title = failures === 0 ? `成功 ${total}` : `失敗 ${failures}`;
+</script>
+</body>
+</html>

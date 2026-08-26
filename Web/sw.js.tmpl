@@ -1,0 +1,48 @@
+// ホーム画面に追加したときと、電波が無いときのための保存棚。
+// build.py が __VERSION__ を実際の版に置き換えて site/sw.js を作る。
+//
+// 版が変わると棚ごと作り直す。古い部品が新しい本体と混ざると、
+// どちらが動いているのか分からなくなる。
+
+const VERSION = '__VERSION__';
+const SHELF = `passvault-${VERSION}`;
+const SHELL = ['./', './index.html', './manifest.webmanifest',
+               './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(SHELF).then(shelf => shelf.addAll(SHELL)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    for (const name of await caches.keys()) {
+      if (name.startsWith('passvault-') && name !== SHELF) await caches.delete(name);
+    }
+    await self.clients.claim();
+  })());
+});
+
+// 棚にあるものを先に出す。パスワード管理は電波の有無で使えなくなっては困る。
+//
+// 通信は一切しない造りなので、ここで外へ出ていく要求は本来ない。
+// 同じ場所のものだけを扱い、それ以外は素通しする。
+self.addEventListener('fetch', event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
+
+  event.respondWith((async () => {
+    const held = await caches.match(event.request);
+    if (held) return held;
+    try {
+      const fresh = await fetch(event.request);
+      if (fresh.ok) (await caches.open(SHELF)).put(event.request, fresh.clone());
+      return fresh;
+    } catch (error) {
+      // 棚にも無く、外にも出られない
+      const fallback = await caches.match('./index.html');
+      if (fallback) return fallback;
+      throw error;
+    }
+  })());
+});

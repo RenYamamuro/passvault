@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  同期で使う Bonjour のサービス種別。ここに書いていないサービスは
+	  OS が探させてくれないため、同期相手が一切見つからなくなる。
+	  ファイルは同期グループ（PassVault/）の外に置いてある。
+	  中に入れるとバンドルへ二重にコピーされてビルドが壊れるため。
+	-->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_passvault._tcp</string>
+	</array>
+</dict>
+</plist>
