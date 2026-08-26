@@ -5,7 +5,7 @@ import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity,
+  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -34,14 +34,16 @@ let otpTimer = null;
 
 hooks.renderDetail = function renderDetail() {
   clearInterval(otpTimer);
-  const column = $('#detail-col');
+  const column = $('#main');
   const item = state.items.find(candidate => candidate.id === state.selectedId);
 
   if (!item) {
-    column.replaceChildren(el('div', { className: 'empty' }, [
-      el('span', { className: 'big' }, [icon('lock', 34)]),
-      el('span', { className: 'lead', textContent: '項目を選択してください' }),
-      el('span', { textContent: '左の一覧から選ぶと、ここに中身が表示されます。' }),
+    // render() が一覧へ戻すので普通は通らない。通ったときに空白を残さないための備え。
+    column.replaceChildren(el('div', { className: 'sheet' }, [
+      el('div', { className: 'empty' }, [
+        el('span', { className: 'big' }, [icon('inbox', 38)]),
+        el('span', { className: 'lead', textContent: 'この項目は見つかりませんでした' }),
+      ]),
     ]));
     return;
   }
@@ -59,14 +61,14 @@ hooks.renderDetail = function renderDetail() {
   if (item.isFavorite) favButton.style.color = '#e8b021';
 
   parts.push(el('div', { className: 'detail-head' }, [
-    el('button', {
-      className: 'iconbtn mobile-only', title: '一覧へ戻る', 'aria-label': '一覧へ戻る',
-      onclick: () => { state.pane = 'list'; render(); },
-    }, [icon('back')]),
-    el('div', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 24)]),
+    el('div', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 26)]),
     el('div', { className: 'grow' }, [
       el('h1', { textContent: V.displayTitle(item) }),
-      el('div', { className: 'cat', textContent: V.CATEGORIES[item.category].name }),
+      el('button', {
+        className: 'cat', title: `${V.CATEGORIES[item.category].name}だけを見る`,
+        onclick: () => filterBy({ kind: 'category', value: item.category }),
+        textContent: V.CATEGORIES[item.category].name,
+      }),
     ]),
     favButton,
   ]));
@@ -104,8 +106,13 @@ hooks.renderDetail = function renderDetail() {
   }
 
   if (item.tags.length) {
+    // 押したらそのタグで絞る。札から種別とタグを外したぶん、
+    // ここが「同じ仲間を見る」ための入口になる。
     parts.push(el('div', { className: 'tags' },
-      item.tags.map(tag => el('span', { className: 'tag' }, [icon('tag', 12), tag]))));
+      item.tags.map(tag => el('button', {
+        className: 'tag', title: `「${tag}」で絞り込む`,
+        onclick: () => filterBy({ kind: 'tag', value: tag }),
+      }, [icon('tag', 12), tag]))));
   }
 
   if (item.notes) {
@@ -151,6 +158,7 @@ hooks.renderDetail = function renderDetail() {
         state.items = state.items.filter(candidate => candidate.id !== item.id);
         state.deletions.push({ id: item.id, deletedAt: V.isoNoMillis() });
         state.selectedId = null;
+        state.view = 'list';
         if (!await save()) return;
         toast('完全に削除しました'); render();
       } }),
@@ -161,6 +169,7 @@ hooks.renderDetail = function renderDetail() {
       el('button', { className: 'push', textContent: 'ゴミ箱に入れる', onclick: async () => {
         item.trashedAt = V.isoNoMillis(); item.updatedAt = item.trashedAt;
         state.selectedId = null;
+        state.view = 'list';
         if (!await save()) return;
         toast('ゴミ箱に入れました'); render();
       } }),
@@ -168,7 +177,7 @@ hooks.renderDetail = function renderDetail() {
   }
   parts.push(actions);
 
-  column.replaceChildren(el('div', { className: 'detail' }, parts));
+  column.replaceChildren(el('div', { className: 'sheet detail' }, parts));
 };
 
 function fieldRow(field) {

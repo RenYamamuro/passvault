@@ -21,9 +21,8 @@
 <div style="position:fixed;left:-99999px;top:0;width:1200px;height:800px" aria-hidden="true">
   <div id="gate"></div>
   <div id="app">
-    <div class="column" id="sidebar"></div>
-    <div class="column" id="list-col"></div>
-    <div class="column" id="detail-col"></div>
+    <div id="bar"></div>
+    <div id="main"></div>
   </div>
   <div id="toast"></div>
 </div>
@@ -330,6 +329,12 @@ check('カード番号の中身も検索対象にしない', !V.matches(cardTarg
 check('カード番号は下 4 桁だけ一覧に出る', V.subtitle(cardTarget) === '•••• 1111');
 check('カード番号は 4 桁ごとに区切って表示',
       V.groupedCardNumber('4111111111111111') === '4111 1111 1111 1111');
+
+// 種別名でも絞れること。ここが効くので、画面に種別ごとの入れ物を並べずに済む。
+check('種別名で検索できる（ログイン）', V.matches(searchTarget, 'ログイン'));
+check('種別名で検索できる（クレジットカード）', V.matches(cardTarget, 'クレジットカード'));
+check('種別名の一部でも引っかかる', V.matches(cardTarget, 'カード'));
+check('別の種別は引っかからない', !V.matches(searchTarget, 'クレジットカード'));
 
 // ============================================================
 section('保存の安全性');

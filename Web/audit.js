@@ -1,11 +1,11 @@
-// Watchtower（保管庫全体の弱点の洗い出し）と、2 つの保管庫のマージ。
+// 点検（保管庫全体の弱点の洗い出し）と、2 つの保管庫のマージ。
 // どちらも通信をせず、渡された値だけで判断する。
 
 import { estimateBits, strengthLevel } from './crypto-extras.js';
 import { displayTitle, primaryPassword } from './core.js';
 
 // ============================================================
-// Watchtower
+// 点検
 // ============================================================
 
 export const FINDING_KINDS = {

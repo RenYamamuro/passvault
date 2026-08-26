@@ -268,6 +268,9 @@ export function matches(item, query) {
   if (!q) return true;
   if (displayTitle(item).toLowerCase().includes(q)) return true;
   if (item.tags.some(tag => tag.toLowerCase().includes(q))) return true;
+  // 種別名も拾う。「ログイン」「カード」と打てば絞れるので、
+  // 画面に種別ごとの入れ物を並べる必要がなくなる。
+  if (CATEGORIES[item.category]?.name.toLowerCase().includes(q)) return true;
   if (item.notes.toLowerCase().includes(q)) return true;
   return item.fields.some(field => {
     if (isConcealed(field.kind)) return field.label.toLowerCase().includes(q);

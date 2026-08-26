@@ -118,9 +118,8 @@ if ('serviceWorker' in navigator) {
 <body>
 <div id="gate"></div>
 <div id="app">
-  <div class="column" id="sidebar"></div>
-  <div class="column" id="list-col"></div>
-  <div class="column" id="detail-col"></div>
+  <div id="bar"></div>
+  <div id="main"></div>
 </div>
 <div id="toast"></div>
 <script>window.PASSVAULT_BUILD = {json.dumps(version)};</script>

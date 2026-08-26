@@ -29,7 +29,8 @@ export const state = {
   revealed: new Set(),
   lastActivity: Date.now(),
   holds: 0,           // 0 より大きい間は自動施錠しない
-  pane: 'list',       // 狭い画面でどの列を出すか: sidebar | list | detail
+  view: 'list',       // いま出している画面: list | detail
+  cursor: -1,         // 一覧でキーボードが指している位置（-1 はまだ触っていない）
   stash: null,        // 施錠時に保存できていなかった変更（暗号化したまま）
 };
 
@@ -793,7 +794,7 @@ function visibleItems() {
 }
 
 const selectionTitle = selection => ({
-  all: 'すべて', favorites: 'お気に入り', watchtower: 'Watchtower', trash: 'ゴミ箱',
+  all: 'すべて', favorites: 'お気に入り', watchtower: '点検', trash: 'ゴミ箱',
   category: V.CATEGORIES[selection.value]?.name, tag: selection.value,
 }[selection.kind] ?? 'すべて');
 
@@ -819,168 +820,223 @@ export function render() {
   }
   $('#gate').style.display = 'none';
   $('#app').classList.add('on');
-  renderSidebar();
-  renderList();
-  renderDetail();
 
-  // 狭い画面では 1 列ずつ見せる。広い画面ではこの印は効かない。
-  const panes = { sidebar: '#sidebar', list: '#list-col', detail: '#detail-col' };
-  for (const [name, selector] of Object.entries(panes)) {
-    $(selector).classList.toggle('mobile-active', state.pane === name);
+  // 詳細を出している最中に項目が消えた（削除・取り込みなど）ら一覧へ戻す。
+  // 戻さないと、何も無い画面に取り残される。
+  if (state.view === 'detail' && !state.items.some(item => item.id === state.selectedId)) {
+    state.view = 'list';
   }
+
+  renderBar();
+  if (state.view === 'detail') renderDetail();
+  else renderListView();
 }
 
-/// 件数の表示。0 は場所だけ取って数を出さない。
-/// 全部の行に数字が並ぶと、意味のある数まで埋もれる。
-const count = value => el('span', {
-  className: value ? 'count' : 'count zero',
-  textContent: String(value),
-});
+/// 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。
+function renderBar() {
+  const bar = $('#bar');
 
-function renderSidebar() {
-  const rows = [];
-  const add = (selection, iconName, label, extra) => {
-    const selected = sameSelection(selection, state.selection);
-    rows.push(el('button', {
-      className: `sb-row${selected ? ' sel' : ''}`,
-      onclick: () => {
-        state.selection = selection;
-        state.selectedId = null;
-        state.pane = 'list';   // 狭い画面では選んだら一覧へ進む
-        noteActivity();
-        render();
-      },
-    }, [
-      icon(iconName),
-      el('span', { className: 'grow', textContent: label }),
-      extra ?? count(itemsFor(selection).length),
-    ]));
-  };
+  const tools = (...extra) => el('div', { className: 'bar-tools' }, [
+    ...extra,
+    el('button', { className: 'iconbtn', title: 'パスワード生成',
+                   'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('wand')]),
+    el('button', { className: 'iconbtn', title: '設定',
+                   'aria-label': '設定', onclick: openSettings }, [icon('gear')]),
+    el('button', { className: 'iconbtn', title: 'ロック',
+                   'aria-label': 'ロック', onclick: lock }, [icon('lock')]),
+  ]);
 
-  rows.push(el('div', { className: 'sb-group' }));
-  add({ kind: 'all' }, 'grid', 'すべて');
-  add({ kind: 'favorites' }, 'star', 'お気に入り');
-
-  rows.push(el('h3', { textContent: 'カテゴリ' }));
-  for (const id of Object.keys(V.CATEGORIES)) {
-    if (itemsFor({ kind: 'category', value: id }).length === 0) continue;
-    add({ kind: 'category', value: id }, CATEGORY_LOOK[id].icon, V.CATEGORIES[id].name);
+  if (state.view === 'detail') {
+    const item = state.items.find(candidate => candidate.id === state.selectedId);
+    bar.replaceChildren(
+      el('button', { className: 'backbtn', title: '一覧へ戻る（Esc）',
+                     'aria-label': '一覧へ戻る', onclick: showList },
+         [icon('back', 18), el('span', { textContent: selectionTitle(state.selection) })]),
+      // 帯にも名前を出す。下へ辿ったときに何を見ているか分からなくならないように。
+      el('div', { className: 'bar-title', textContent: item ? V.displayTitle(item) : '' }),
+      tools(),
+    );
+    return;
   }
-
-  rows.push(el('h3', { textContent: 'セキュリティ' }));
-  add({ kind: 'watchtower' }, state.findings.length ? 'shield' : 'shieldCheck', 'Watchtower',
-    state.findings.length
-      ? el('span', { className: 'badge', textContent: String(state.findings.length) })
-      : count(0));
-
-  const tags = allTags();
-  if (tags.length) {
-    rows.push(el('h3', { textContent: 'タグ' }));
-    for (const tag of tags) add({ kind: 'tag', value: tag }, 'tag', tag);
-  }
-
-  rows.push(el('h3', { textContent: ' ' }));
-  add({ kind: 'trash' }, 'trash', 'ゴミ箱');
-
-  $('#sidebar').replaceChildren(
-    el('div', { className: 'col-head' }, [
-      el('h2', {
-        textContent: state.dirty ? 'PassVault ・未保存' : 'PassVault',
-        style: state.dirty ? 'color:var(--warn)' : '',
-        title: state.dirty ? '保存できていない変更があります' : '',
-      }),
-      el('button', { className: 'iconbtn', title: 'パスワード生成',
-                     'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('wand')]),
-      el('button', { className: 'iconbtn', title: '設定',
-                     'aria-label': '設定', onclick: openSettings }, [icon('gear')]),
-      el('button', { className: 'iconbtn', title: 'ロック',
-                     'aria-label': 'ロック', onclick: lock }, [icon('lock')]),
-    ]),
-    ...rows
-  );
-}
-
-function renderList() {
-  const items = visibleItems();
-  const isTrash = state.selection.kind === 'trash';
 
   const search = el('input', {
     id: 'search', type: 'search', placeholder: '検索', value: state.search,
-    oninput: event => { state.search = event.target.value; noteActivity(); renderList(); },
+    autocomplete: 'off', spellcheck: false,
+    oninput: event => {
+      state.search = event.target.value;
+      state.cursor = -1;
+      noteActivity();
+      renderListView();
+    },
   });
 
-  const head = el('div', { className: 'col-head' }, [
-    el('button', {
-      className: 'iconbtn mobile-only', title: 'カテゴリ', 'aria-label': 'カテゴリへ戻る',
-      onclick: () => { state.pane = 'sidebar'; render(); },
-    }, [icon('back')]),
-    search,
-  ]);
-  if (isTrash && trashedItems().length) {
-    head.append(el('button', {
-      className: 'iconbtn', title: 'ゴミ箱を空にする', 'aria-label': 'ゴミ箱を空にする',
-      onclick: async () => {
-        const ok = await hooks.askConfirm?.('ゴミ箱を空にする',
-          'ゴミ箱の中身を完全に削除します。取り消せません。',
-          { confirmLabel: '完全に削除', destructive: true });
-        if (!ok) return;
-        const removed = trashedItems();
-        state.items = state.items.filter(item => !item.trashedAt);
-        state.deletions.push(...removed.map(item => ({ id: item.id, deletedAt: V.isoNoMillis() })));
-        if (!await save()) return;
-        toast('ゴミ箱を空にしました');
-        render();
-      },
-    }, [icon('broom')]));
-  } else if (!isTrash) {
-    head.append(el('button', {
-      className: 'iconbtn', title: '新しい項目', 'aria-label': '新しい項目',
-      onclick: openNewItemMenu,
-    }, [icon('plus')]));
-  }
-
-  const body = items.length
-    ? items.map(item => itemRow(item))
-    : [el('div', { className: 'empty' }, [
-        el('span', { className: 'big' }, [icon(isTrash ? 'trash' : 'inbox', 34)]),
-        el('span', { className: 'lead', textContent:
-          isTrash ? 'ゴミ箱は空です' : (state.search ? '見つかりませんでした' : '項目がありません') }),
-        state.search || isTrash ? null
-          : el('span', { textContent: '右上の ＋ から追加できます。' }),
-      ])];
-
-  $('#list-col').replaceChildren(head, ...body);
+  bar.replaceChildren(
+    el('div', { className: 'brand', title: state.dirty ? '保存できていない変更があります' : '' }, [
+      icon('shieldCheck', 17),
+      el('span', { textContent: 'PassVault' }),
+      state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
+    ]),
+    el('div', { className: 'searchwrap' }, [search]),
+    tools(el('button', { className: 'iconbtn', title: '新しい項目',
+                         'aria-label': '新しい項目', onclick: openNewItemMenu }, [icon('plus')])),
+  );
 }
 
-function itemRow(item) {
+/// 絞り込みの札。縦のサイドバーをやめて横一列にした。
+/// 中身のある区分しか出さない。空の器が並んでも選ぶ理由がない。
+function renderChips() {
+  const chips = [];
+  const add = (selection, label, extra) => {
+    const selected = sameSelection(selection, state.selection);
+    chips.push(el('button', {
+      className: `chip${selected ? ' sel' : ''}`,
+      onclick: () => {
+        state.selection = selection;
+        state.cursor = -1;
+        noteActivity();
+        renderListView();
+      },
+    }, [label, extra ?? null]));
+  };
+
+  // 出すのは「検索では言い表せない見方」だけにする。
+  // 種別もタグも検索語で絞れるので、札にすると器が並ぶだけになる。
+  // （実際、種別とタグを全部出したら 16 個並んで、縦のサイドバーの
+  //   散らかりを横に移しただけになった）
+  const n = (value, cls) => el('span', { className: cls ? `n ${cls}` : 'n', textContent: String(value) });
+
+  add({ kind: 'all' }, 'すべて', n(activeItems().length));
+  const favorites = itemsFor({ kind: 'favorites' }).length;
+  if (favorites) add({ kind: 'favorites' }, 'お気に入り', n(favorites));
+  if (state.findings.length) add({ kind: 'watchtower' }, '点検', n(state.findings.length, 'warn'));
+  if (trashedItems().length) add({ kind: 'trash' }, 'ゴミ箱', n(trashedItems().length));
+
+  // 種別やタグから入ってきた場合は、いま何で絞っているかを見せて戻せるようにする
+  if (state.selection.kind === 'category' || state.selection.kind === 'tag') {
+    add(state.selection, selectionTitle(state.selection), n(itemsFor(state.selection).length));
+  }
+
+  return el('div', { className: 'chips' }, chips);
+}
+
+function renderListView() {
+  const items = visibleItems();
+  const isTrash = state.selection.kind === 'trash';
+
+  // 選んでいた区分が空になったら「すべて」へ落とす（最後の 1 件を消したときなど）
+  if (!sameSelection(state.selection, { kind: 'all' }) && !items.length && !state.search) {
+    const stillThere = itemsFor(state.selection).length;
+    if (!stillThere) state.selection = { kind: 'all' };
+  }
+
+  // -1（まだキーボードを触っていない）はそのまま残す。
+  // ここで 0 に丸めると、開いた直後から 1 行目が光って選択済みに見える。
+  if (state.cursor >= 0) state.cursor = Math.min(state.cursor, items.length - 1);
+
+  const parts = [renderChips()];
+
+  if (isTrash && trashedItems().length) {
+    parts.push(el('div', { className: 'listtools' }, [
+      el('button', { className: 'linkbtn', onclick: emptyTrash }, [icon('broom', 14), 'ゴミ箱を空にする']),
+    ]));
+  }
+
+  if (items.length) {
+    parts.push(el('div', { className: 'list' }, items.map((item, index) => itemRow(item, index))));
+    parts.push(el('div', { className: 'listfoot', textContent: `${items.length} 件` }));
+  } else {
+    parts.push(el('div', { className: 'empty' }, [
+      el('span', { className: 'big' }, [icon(isTrash ? 'trash' : (state.search ? 'search' : 'inbox'), 38)]),
+      el('span', { className: 'lead', textContent:
+        isTrash ? 'ゴミ箱は空です'
+                : (state.search ? `「${state.search}」に一致するものはありません` : 'まだ何もありません') }),
+      state.search || isTrash ? null
+        : el('span', { textContent: '右上の ＋ から追加できます。' }),
+    ]));
+  }
+
+  $('#main').replaceChildren(el('div', { className: 'sheet' }, parts));
+}
+
+async function emptyTrash() {
+  const ok = await hooks.askConfirm?.('ゴミ箱を空にする',
+    'ゴミ箱の中身を完全に削除します。取り消せません。',
+    { confirmLabel: '完全に削除', destructive: true });
+  if (!ok) return;
+  const removed = trashedItems();
+  state.items = state.items.filter(item => !item.trashedAt);
+  state.deletions.push(...removed.map(item => ({ id: item.id, deletedAt: V.isoNoMillis() })));
+  if (!await save()) return;
+  toast('ゴミ箱を空にしました');
+  render();
+}
+
+export function showList() {
+  state.view = 'list';
+  noteActivity();
+  render();
+}
+
+/// 種別やタグで絞って一覧へ戻る。詳細から「同じ仲間」へ行くための道。
+export function filterBy(selection) {
+  state.selection = selection;
+  state.search = '';
+  state.cursor = -1;
+  state.view = 'list';
+  noteActivity();
+  render();
+}
+
+export function openItem(id) {
+  state.selectedId = id;
+  state.view = 'detail';
+  noteActivity();
+  render();
+}
+
+function itemRow(item, index) {
   const look = CATEGORY_LOOK[item.category];
   const marks = el('span', { className: 'marks' });
   if (item.oneTimePasswordSecret) {
-    const mark = icon('clock', 13); mark.setAttribute('aria-label', 'ワンタイムパスワードあり');
+    const mark = icon('clock', 14); mark.setAttribute('aria-label', 'ワンタイムパスワードあり');
     marks.append(mark);
   }
   if (state.findings.some(finding => finding.itemId === item.id)) {
-    const mark = icon('warning', 13); mark.classList.add('warn');
-    mark.setAttribute('aria-label', 'Watchtower の指摘あり');
+    const mark = icon('warning', 14); mark.classList.add('warn');
+    mark.setAttribute('aria-label', '点検の指摘あり');
     marks.append(mark);
   }
   if (item.isFavorite) {
-    const mark = icon('starFill', 13); mark.classList.add('fav');
+    const mark = icon('starFill', 14); mark.classList.add('fav');
     mark.setAttribute('aria-label', 'お気に入り');
     marks.append(mark);
   }
 
-  return el('button', {
-    className: `item-row${item.id === state.selectedId ? ' sel' : ''}`,
-    onclick: () => { state.selectedId = item.id; state.pane = 'detail'; noteActivity(); render(); },
+  const row = el('div', {
+    className: `item-row${index === state.cursor ? ' cur' : ''}`,
   }, [
-    el('span', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 15)]),
-    el('span', { className: 'lines' }, [
-      el('span', { className: 't', textContent: V.displayTitle(item) }),
-      V.subtitle(item) ? el('span', { className: 's', textContent: V.subtitle(item) }) : null,
+    el('button', {
+      className: 'item-open', onclick: () => openItem(item.id),
+    }, [
+      el('span', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 17)]),
+      el('span', { className: 'lines' }, [
+        el('span', { className: 't', textContent: V.displayTitle(item) }),
+        V.subtitle(item) ? el('span', { className: 's', textContent: V.subtitle(item) }) : null,
+      ]),
+      marks,
     ]),
-    marks,
   ]);
+
+  // 一覧から直接コピーできるようにする。9 割はこれで用が済むので、
+  // わざわざ詳細を開かせる理由がない。
+  const password = V.primaryPassword(item);
+  if (password && !item.trashedAt) {
+    row.append(el('button', {
+      className: 'quick', title: 'パスワードをコピー', 'aria-label': `${V.displayTitle(item)} のパスワードをコピー`,
+      onclick: event => { event.stopPropagation(); copySecret(password, 'パスワード'); },
+    }, [icon('copy', 15)]));
+  }
+  return row;
 }
 
 // 詳細と各ダイアログは detail.js 側に置く（この時点では未読込でも動くよう遅延で解決）
@@ -1011,6 +1067,68 @@ setInterval(() => { pollRemoteChange(); }, 15_000);
 // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) pollRemoteChange();
+});
+
+// ============================================================
+// キーボード
+// ============================================================
+//
+// 検索から手を離さずに目的の項目へ行けること。
+// この造りだと、探す→選ぶ→コピーが一続きの操作になる。
+
+document.addEventListener('keydown', event => {
+  if (!state.key || state.holds > 0) return;   // 施錠中とダイアログ表示中は触らない
+
+  const search = $('#search');
+  const typing = document.activeElement?.tagName === 'INPUT'
+              || document.activeElement?.tagName === 'TEXTAREA';
+
+  if (event.key === 'Escape') {
+    if (state.view === 'detail') { showList(); event.preventDefault(); return; }
+    if (state.search) {
+      state.search = '';
+      state.cursor = -1;
+      renderListView();
+      search?.focus();
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (state.view !== 'list') return;
+
+  const items = visibleItems();
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (!items.length) return;
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    state.cursor = Math.max(0, Math.min(items.length - 1, state.cursor + step));
+    renderListView();
+    $('.item-row.cur')?.scrollIntoView({ block: 'nearest' });
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key === 'Enter' && items[state.cursor]) {
+    // 検索欄で入力中でも開ける。矢印で選んでそのまま Enter が自然な流れ。
+    openItem(items[state.cursor].id);
+    event.preventDefault();
+    return;
+  }
+
+  // 選んでいる項目のパスワードを、開かずに写す
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && items[state.cursor]) {
+    if (!window.getSelection()?.toString()) {
+      const password = V.primaryPassword(items[state.cursor]);
+      if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+    }
+    return;
+  }
+
+  // 文字を打ったら検索へ吸い込む。どこを触っていても探し始められる。
+  if (!typing && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    search?.focus();
+  }
 });
 
 for (const event of ['click', 'keydown', 'pointermove']) {
