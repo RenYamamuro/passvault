@@ -1,0 +1,3986 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="PassVault">
+<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e8e8ea" media="(prefers-color-scheme: light)">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<!-- 検索避け。個人の保管庫なので、見つけてもらう必要がない。 -->
+<meta name="robots" content="noindex, nofollow">
+<title>PassVault</title>
+<!--
+  このファイルは Web/build.py が生成したものです。直接編集しないでください。
+  元は Web/style.css と Web/*.js です。
+-->
+<style>
+/* 骨組み。テーマ（theme-*.css）はこの上に重ねて色と密度を変える。
+ *
+ * 構造の考え方:
+ *   ・面はひとつ。一覧と詳細は「切り替わる画面」であって、並ぶ列ではない。
+ *     数十件の保管庫に 3 列は過剰で、ほとんどが空の器になる
+ *   ・検索が主役。上の帯でいちばん広い場所を占める
+ *   ・区分は横一列の札。中身のあるものしか出さない
+ *   ・一覧から直接コピーできる。9 割の用はそれで済む
+ *
+ * 組みの考え方:
+ *   ・余白は 4 の倍数で刻む。目が拾える律動を作るため
+ *   ・選択は塗りつぶさない。地を薄く染めて文字を強める
+ *   ・影はほとんど使わない。境界線と地の明度差で階層を作る
+ *   ・色は状態を示すときだけ使う。装飾では使わない
+ *   ・純白と純黒を避ける。目に刺さるうえ、階層も作りにくい
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --accent: AccentColor;
+  --accent-text: AccentColorText;
+  --accent-fallback: #3b5bdb;
+
+  --window: #f5f5f7;
+  --bar: rgba(250, 250, 252, 0.78);
+  --content: #ffffff;
+  --raised: #ffffff;
+  --sunken: #eeeef1;
+
+  --text: #16161a;
+  --text-2: rgba(22, 22, 26, 0.56);
+  --text-3: rgba(22, 22, 26, 0.36);
+  --hairline: rgba(22, 22, 26, 0.09);
+  --hairline-strong: rgba(22, 22, 26, 0.15);
+  --hover: rgba(22, 22, 26, 0.045);
+
+  --danger: #d13d31;
+  --warn: #a96500;
+  --ok: #1a7f43;
+
+  --r-small: 8px;
+  --r-medium: 12px;
+  --r-large: 18px;
+
+  --shadow-raised: 0 0 0 0.5px rgba(22, 22, 26, 0.05), 0 1px 2px rgba(22, 22, 26, 0.04);
+  --shadow-sheet: 0 0 0 0.5px rgba(22, 22, 26, 0.1), 0 24px 64px rgba(22, 22, 26, 0.24);
+
+  --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 11%, transparent);
+
+  --tint-l: 47%;
+  --tint-s: 56%;
+
+  --ease: cubic-bezier(.32, .72, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent-fallback: #7a94ff;
+
+    /* 黒を持ち上げる。沈めきると輪郭が消えて階層が読めない。 */
+    --window: #141416;
+    --bar: rgba(28, 28, 31, 0.76);
+    --content: #1b1b1e;
+    --raised: #232327;
+    --sunken: #191a1d;
+
+    --text: rgba(255, 255, 255, 0.92);
+    --text-2: rgba(255, 255, 255, 0.54);
+    --text-3: rgba(255, 255, 255, 0.33);
+    --hairline: rgba(255, 255, 255, 0.09);
+    --hairline-strong: rgba(255, 255, 255, 0.16);
+    --hover: rgba(255, 255, 255, 0.055);
+
+    --danger: #ff6b61;
+    --warn: #ffb340;
+    --ok: #41c777;
+
+    --shadow-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.28);
+    --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.58);
+
+    --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 20%, transparent);
+
+    --tint-l: 62%;
+    --tint-s: 52%;
+  }
+}
+
+@supports not (color: AccentColor) {
+  :root { --accent: var(--accent-fallback); --accent-text: #fff; }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans',
+        'Noto Sans JP', system-ui, sans-serif;
+  color: var(--text);
+  background: var(--window);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button { font: inherit; color: inherit; cursor: default; }
+input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent, var(--accent-fallback)); text-underline-offset: 2px; }
+.icon { flex: none; vertical-align: -0.15em; }
+.grow { flex: 1; min-width: 0; }
+
+.gate-card h1, .detail-head h1, .dlg-head h2, .g-title, .brand {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Hiragino Sans',
+               'Noto Sans JP', system-ui, sans-serif;
+  letter-spacing: -0.014em;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chip, .item-row, .iconbtn, .push, .quick, .tag, .pill, dialog {
+    transition: background-color .13s var(--ease), color .13s var(--ease),
+                box-shadow .13s var(--ease), opacity .13s var(--ease);
+  }
+  dialog[open] { animation: sheet-in .26s var(--ease); }
+  @keyframes sheet-in {
+    from { transform: translateY(-12px) scale(.99); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+  #main > .sheet { animation: view-in .2s var(--ease); }
+  @keyframes view-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent, var(--accent-fallback)) 42%, transparent);
+  outline-offset: 1px;
+  border-radius: var(--r-small);
+}
+
+/* ---------- 入口（作成・解錠） ---------- */
+
+#gate {
+  min-height: 100vh; display: grid; place-items: center;
+  padding: 40px 24px; background: var(--window);
+}
+.gate-card { width: 100%; max-width: 380px; text-align: center; }
+.gate-card h1 { font-size: 27px; font-weight: 600; line-height: 1.2; margin: 20px 0 8px; }
+.gate-card p.lead { color: var(--text-2); margin: 0 0 28px; font-size: 14px; line-height: 1.55; }
+.gate-mark { color: var(--accent, var(--accent-fallback)); display: flex; justify-content: center; }
+
+.field {
+  width: 100%; padding: 10px 13px;
+  border: 0.5px solid var(--hairline-strong); border-radius: var(--r-small);
+  background: var(--content); margin-bottom: 8px;
+}
+.field::placeholder { color: var(--text-3); }
+.field:focus { outline: none; border-color: var(--accent, var(--accent-fallback));
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent, var(--accent-fallback)) 26%, transparent); }
+textarea.field { resize: vertical; line-height: 1.6; }
+
+.push {
+  width: 100%; padding: 9px 18px; border-radius: var(--r-small);
+  border: 0.5px solid var(--hairline-strong); background: var(--raised);
+  box-shadow: var(--shadow-raised); font-weight: 450;
+}
+.push:hover:not(:disabled) { background: color-mix(in srgb, var(--raised) 93%, var(--text) 7%); }
+.push:active:not(:disabled) { background: color-mix(in srgb, var(--raised) 86%, var(--text) 14%); }
+.push:disabled { opacity: .45; }
+.push.primary {
+  background: var(--accent, var(--accent-fallback)); color: var(--accent-text, #fff);
+  border-color: transparent; font-weight: 550;
+}
+.push.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.push.primary:active:not(:disabled) { filter: brightness(.92); }
+.push.primary:disabled { background: var(--hairline-strong); color: var(--text-3); box-shadow: none; }
+.push + .push { margin-top: 8px; }
+
+.hints { text-align: left; margin: 14px 2px 18px; display: grid; gap: 5px; }
+.hint { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 7px; }
+.hint .icon { color: var(--text-3); }
+.hint.ok, .hint.ok .icon { color: var(--ok); }
+.tip { font-size: 12px; color: var(--text-3); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
+.error { color: var(--danger); font-size: 13px; text-align: left; margin: 8px 2px; }
+
+/* ---------- 全体の骨格 ---------- */
+
+#app { display: none; height: 100vh; grid-template-rows: auto 1fr; }
+#app.on { display: grid; }
+
+/* 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。 */
+#bar {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 18px; min-height: 62px;
+  background: var(--bar);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border-bottom: 0.5px solid var(--hairline);
+  z-index: 5;
+}
+.brand {
+  display: flex; align-items: center; gap: 7px; flex: none;
+  font-size: 14.5px; font-weight: 600; color: var(--text);
+}
+.brand .icon { color: var(--accent, var(--accent-fallback)); }
+.brand .unsaved {
+  font-size: 11px; font-weight: 600; color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 15%, transparent);
+  padding: 1px 7px; border-radius: 999px; margin-left: 2px;
+}
+
+.searchwrap { flex: 1; display: flex; justify-content: center; }
+#search {
+  width: 100%; max-width: 520px;
+  padding: 9px 14px 9px 36px; border-radius: 10px;
+  border: 0.5px solid transparent; background: var(--sunken);
+  font-size: 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='10.7' cy='10.7' r='6.7'/%3E%3Cpath d='m15.6 15.6 4.4 4.4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: 12px center; background-size: 15px;
+  -webkit-appearance: none;
+}
+#search::placeholder { color: var(--text-3); }
+#search:focus { outline: none; background-color: var(--content);
+  border-color: var(--accent, var(--accent-fallback));
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent, var(--accent-fallback)) 22%, transparent); }
+
+.bar-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+
+/* 詳細のときの帯。戻り先の名前を出して、どこから来たか分かるようにする。 */
+.backbtn {
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+  background: none; border: none; padding: 6px 10px 6px 6px;
+  border-radius: var(--r-small); color: var(--accent, var(--accent-fallback));
+  font-size: 13.5px; font-weight: 500;
+}
+.backbtn:hover { background: var(--hover); }
+.bar-title {
+  flex: 1; text-align: center; font-size: 13.5px; font-weight: 550;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 8px;
+}
+
+.iconbtn {
+  background: none; border: none; padding: 7px; border-radius: var(--r-small);
+  color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
+}
+.iconbtn:hover { background: var(--hover); color: var(--text); }
+.iconbtn:active { background: var(--hairline); }
+.iconbtn.on { color: var(--accent, var(--accent-fallback)); }
+
+#main { overflow-y: auto; }
+
+/* 中身はひとつの柱にまとめて中央に置く。端まで広げると視線が泳ぐ。 */
+.sheet { max-width: 720px; margin: 0 auto; padding: 22px 20px 64px; }
+
+/* ---------- 区分の札 ---------- */
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 999px;
+  border: 0.5px solid var(--hairline-strong); background: transparent;
+  color: var(--text-2); font-size: 13px;
+}
+.chip:hover { background: var(--hover); color: var(--text); }
+.chip .n { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.chip .n.warn { color: var(--warn); font-weight: 600; }
+.chip.sel {
+  background: var(--selected); border-color: transparent;
+  color: var(--accent, var(--accent-fallback)); font-weight: 550;
+}
+.chip.sel .n { color: color-mix(in srgb, currentColor 66%, transparent); }
+
+.listtools { display: flex; justify-content: flex-end; margin: -8px 0 10px; }
+.linkbtn {
+  background: none; border: none; color: var(--text-2); font-size: 12.5px;
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+  border-radius: var(--r-small);
+}
+.linkbtn:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- 一覧 ---------- */
+
+.list {
+  background: var(--content); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-medium); overflow: hidden;
+  box-shadow: var(--shadow-raised);
+}
+
+.item-row { display: flex; align-items: stretch; position: relative; }
+.item-row + .item-row { border-top: 0.5px solid var(--hairline); }
+.item-row:hover { background: var(--hover); }
+/* キーボードが指している行。触っている場所を見失わないための印。 */
+.item-row.cur { background: var(--selected); }
+.item-row.cur::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--accent, var(--accent-fallback));
+}
+
+.item-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 13px;
+  padding: 12px 14px; border: none; background: none; text-align: left; color: var(--text);
+}
+.item-row .avatar {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: grid; place-items: center; flex: none; color: #fff;
+  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
+}
+.item-row .lines { flex: 1; min-width: 0; }
+.item-row .t {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 450;
+}
+.item-row.cur .t { font-weight: 550; }
+.item-row .s {
+  display: block; font-size: 12px; color: var(--text-2); margin-top: 1px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.item-row .marks { display: flex; gap: 6px; color: var(--text-3); flex: none; }
+.item-row .marks .warn { color: var(--warn); }
+.item-row .marks .fav { color: #e0a316; }
+
+/* 一覧から直接コピーする釦。触れるまでは控えめにしておく。 */
+.quick {
+  flex: none; width: 46px; border: none; background: none;
+  color: var(--text-3); display: grid; place-items: center;
+  border-left: 0.5px solid transparent;
+}
+.quick:hover { background: var(--hover); color: var(--accent, var(--accent-fallback)); }
+@media (hover: hover) {
+  .quick { opacity: 0; }
+  .item-row:hover .quick, .item-row.cur .quick, .quick:focus-visible { opacity: 1; }
+}
+
+.listfoot {
+  font-size: 11.5px; color: var(--text-3); text-align: right;
+  margin-top: 10px; font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding: 72px 28px; text-align: center; color: var(--text-3);
+  display: grid; gap: 8px; justify-items: center;
+}
+.empty .big { color: var(--text-3); opacity: .4; }
+.empty .lead { font-size: 14px; color: var(--text-2); }
+
+/* ---------- 詳細 ---------- */
+
+.detail-head { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
+.avatar.small {
+  width: 26px; height: 26px; border-radius: 7px;
+  display: grid; place-items: center; flex: none; color: #fff;
+  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
+}
+.detail-head .avatar {
+  width: 58px; height: 58px; border-radius: 15px;
+  display: grid; place-items: center; flex: none; color: #fff;
+  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
+  box-shadow: 0 3px 10px color-mix(in srgb, hsl(var(--hue) var(--tint-s) var(--tint-l)) 30%, transparent);
+}
+.detail-head h1 { font-size: 25px; font-weight: 600; line-height: 1.2; margin: 0; }
+/* 押すと同じ種別だけを見られる。札から種別を外したぶんの入口。 */
+.detail-head .cat {
+  font-size: 12px; color: var(--text-2); margin-top: 3px;
+  letter-spacing: 0.04em; font-weight: 500;
+  background: none; border: none; padding: 0; display: block;
+}
+.detail-head .cat:hover { color: var(--accent, var(--accent-fallback)); }
+
+.card {
+  background: var(--content); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-medium); margin-bottom: 14px;
+  box-shadow: var(--shadow-raised); overflow: hidden;
+}
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 15px; }
+.row + .row { border-top: 0.5px solid var(--hairline); }
+.row .lab {
+  font-size: 11px; color: var(--text-2); margin-bottom: 3px;
+  letter-spacing: 0.04em; font-weight: 500;
+}
+.row .val { word-break: break-word; line-height: 1.45; }
+.row .val.mono {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+@media (hover: hover) {
+  .row .iconbtn { opacity: .4; }
+  .row:hover .iconbtn, .row .iconbtn:focus-visible { opacity: 1; }
+}
+
+.banner {
+  display: flex; gap: 11px; padding: 12px 15px; border-radius: var(--r-medium);
+  margin-bottom: 10px; align-items: flex-start;
+  background: color-mix(in srgb, var(--warn) 11%, transparent);
+  border: 0.5px solid color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.banner > .icon { color: var(--warn); margin-top: 1px; }
+.banner .bt { font-weight: 600; font-size: 13.5px; }
+.banner .bd { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.banner.quiet { background: var(--sunken); border-color: var(--hairline); }
+.banner.quiet > .icon { color: var(--text-2); }
+
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+.tag {
+  font-size: 12.5px; padding: 3px 11px 3px 8px; border-radius: 999px;
+  background: var(--sunken); border: 0.5px solid var(--hairline);
+  display: inline-flex; align-items: center; gap: 5px; color: var(--text-2);
+}
+.tag .icon { color: var(--text-3); }
+button.tag:hover {
+  background: var(--selected); border-color: transparent;
+  color: var(--accent, var(--accent-fallback));
+}
+button.tag:hover .icon { color: currentColor; }
+
+.notes {
+  white-space: pre-wrap; background: var(--content); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-medium); padding: 15px; margin-bottom: 14px;
+  box-shadow: var(--shadow-raised); line-height: 1.65;
+}
+.meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.strength { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.bar { flex: 1; height: 5px; border-radius: 999px; background: var(--hairline); overflow: hidden; max-width: 180px; }
+.bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s var(--ease); }
+.strength .lv { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.otp { display: flex; align-items: center; gap: 14px; padding: 13px 15px; }
+.otp .code {
+  font: 600 27px/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em; margin-top: 3px;
+}
+.otp .ring { width: 29px; height: 29px; flex: none; }
+.otp .ring text { font: 500 9px -apple-system, system-ui, sans-serif; fill: var(--text-2); }
+
+details.history { margin-bottom: 14px; }
+details.history summary {
+  cursor: default; font-size: 13px; color: var(--text-2);
+  padding: 4px 0; list-style: none; display: flex; align-items: center; gap: 6px;
+}
+details.history summary::-webkit-details-marker { display: none; }
+details.history summary::before {
+  content: ''; width: 0; height: 0; border-left: 4px solid currentColor;
+  border-top: 3.5px solid transparent; border-bottom: 3.5px solid transparent;
+  transition: transform .16s var(--ease);
+}
+details.history[open] summary::before { transform: rotate(90deg); }
+
+.actions { display: flex; gap: 9px; margin-top: 26px; }
+.actions .push { width: auto; padding: 8px 22px; }
+
+/* ---------- ダイアログ ---------- */
+
+dialog {
+  border: none; border-radius: var(--r-large); padding: 0; color: var(--text);
+  background: var(--window); max-width: 92vw; width: 520px; max-height: 86vh;
+  box-shadow: var(--shadow-sheet);
+}
+dialog::backdrop { background: rgba(0, 0, 0, .34); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.dlg-head {
+  display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+  border-bottom: 0.5px solid var(--hairline); position: sticky; top: 0;
+  background: color-mix(in srgb, var(--window) 80%, transparent);
+  -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); z-index: 2;
+}
+.dlg-head h2 { font-size: 14.5px; font-weight: 600; line-height: 1.3; margin: 0; flex: 1; text-align: center; }
+.dlg-head button {
+  background: none; border: none; color: var(--accent, var(--accent-fallback));
+  font-weight: 500; padding: 4px 8px; border-radius: var(--r-small);
+}
+.dlg-head button:hover { background: var(--hover); }
+.dlg-head button:disabled { color: var(--text-3); }
+.dlg-head button.danger { color: var(--danger); }
+.dlg-body { padding: 16px; overflow-y: auto; }
+
+.group {
+  background: var(--content); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-medium); margin-bottom: 16px;
+  box-shadow: var(--shadow-raised); overflow: hidden;
+}
+.group > .g-row { padding: 12px 15px; }
+.group > .g-row + .g-row { border-top: 0.5px solid var(--hairline); }
+button.g-row { width: 100%; border: none; background: none; text-align: left; color: var(--text); display: block; }
+button.g-row:hover { background: var(--hover); }
+.g-lab { display: block; font-size: 11px; color: var(--text-2); margin-bottom: 5px; letter-spacing: 0.04em; font-weight: 500; }
+.g-title { font-size: 11.5px; font-weight: 600; line-height: 1.4; color: var(--text-3); margin: 0 4px 6px; letter-spacing: 0.04em; }
+.g-foot { font-size: 12px; color: var(--text-3); margin: -10px 4px 16px; line-height: 1.6; }
+.inline { display: flex; align-items: center; gap: 8px; }
+.inline .field { margin: 0; }
+.between { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+
+.pill {
+  padding: 3px 12px; border-radius: 999px; border: 0.5px solid var(--hairline);
+  background: var(--sunken); font-size: 12.5px; color: var(--text-2);
+}
+.pill:hover { background: var(--hover); }
+
+input[type=range] { accent-color: var(--accent, var(--accent-fallback)); width: 100%; }
+input[type=checkbox] { accent-color: var(--accent, var(--accent-fallback)); width: 15px; height: 15px; }
+select.field { padding: 7px 11px; }
+
+#toast {
+  position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(8px);
+  background: color-mix(in srgb, var(--raised) 88%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
+  border: 0.5px solid var(--hairline); color: var(--text);
+  padding: 10px 18px; border-radius: 999px; font-size: 13.5px;
+  box-shadow: var(--shadow-sheet);
+  opacity: 0; pointer-events: none; transition: opacity .18s var(--ease), transform .18s var(--ease);
+  z-index: 100; max-width: 76vw; text-align: center;
+}
+#toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ---------- 狭い画面 ---------- */
+/*
+ * 面がひとつなので、列を隠す仕掛けが要らない。
+ * 変えるのは帯の詰めと、指で触る大きさだけ。
+ */
+
+.mobile-only { display: none; }
+
+@media (max-width: 720px) {
+  #bar { padding: 10px 12px; gap: 8px; min-height: 58px; flex-wrap: wrap; }
+  /* 名前を落として検索に幅を譲る。狭いところで最優先なのは探すこと。 */
+  .brand span:not(.unsaved) { display: none; }
+  .sheet { padding: 18px 14px 64px; }
+  .detail-head .avatar { width: 50px; height: 50px; border-radius: 13px; }
+  .detail-head h1 { font-size: 22px; }
+  .item-open { padding: 13px 13px; }
+  .quick { width: 52px; }
+  dialog { width: 100%; max-width: 100vw; max-height: 92vh;
+           border-radius: var(--r-large) var(--r-large) 0 0;
+           margin-bottom: 0; margin-top: auto; }
+}
+
+@media (min-width: 1200px) {
+  .sheet { max-width: 800px; padding: 30px 24px 72px; }
+}
+
+/* ---------- 緊急用シート ---------- */
+/*
+ * 紙に残すための一枚。画面では普通のダイアログとして見せ、
+ * 印刷のときだけ本文を紙いっぱいに広げて、他を全部消す。
+ */
+
+.kit { line-height: 1.7; }
+.kit h2 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+.kit h3 {
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  margin: 20px 0 6px; letter-spacing: 0.04em;
+}
+.kit p { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
+.kit-line {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
+  background: var(--sunken); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-small); padding: 9px 12px; word-break: break-all;
+}
+/* 手で書き込むための空欄。アプリは決してここに書かない。 */
+.kit-blank {
+  border-bottom: 1.5px solid var(--text-3);
+  height: 34px; margin: 4px 0 12px;
+}
+.kit-warn {
+  color: var(--danger); font-weight: 500;
+  border-left: 3px solid var(--danger); padding-left: 10px;
+}
+.kit-foot { font-size: 11.5px; color: var(--text-3); margin-top: 22px; }
+
+@media print {
+  /* 紙には中身だけを出す。背景の一覧が透けて出ると、
+     項目名がそのまま印刷されてしまう。 */
+  body > *, #app, #gate, #toast { display: none !important; }
+  dialog { display: block !important; position: static; width: auto; max-width: none;
+           max-height: none; box-shadow: none; background: #fff; color: #000; }
+  dialog::backdrop { display: none; }
+  .dlg-head, .g-foot { display: none !important; }
+  .dlg-body { padding: 0; overflow: visible; }
+  .kit-line { background: #f4f4f4; border-color: #ccc; }
+  .kit-blank { border-bottom-color: #000; }
+  .kit-warn { color: #000; border-left-color: #000; }
+  .kit p, .kit h3 { color: #333; }
+}
+
+
+/* ===== theme-macos.css ===== */
+/* テーマ「macOS」
+ *
+ * style.css の骨組みが元々 macOS に寄せてあるので、重ねるものは無い。
+ * 他のテーマと同じ扱いにするために置いてある。
+ */
+
+</style>
+</head>
+<body>
+<div id="gate"></div>
+<div id="app">
+  <div id="bar"></div>
+  <div id="main"></div>
+</div>
+<div id="toast"></div>
+<script>window.PASSVAULT_BUILD = "8d595e68c6ea";</script>
+<script>
+
+// ===== core.js =====
+// PassVault web 版のコア部分。画面の描画は含まない。
+//
+// ファイル形式は Swift 版とバイト単位で互換。
+//   ヘッダ 44 バイト: "PVLT"(4) + version u16BE(2) + kdfID u16BE(2)
+//                     + iterations u32BE(4) + salt(32)
+//   本体: AES-GCM の nonce(12) + 暗号文 + 認証タグ(16)
+//   AAD: ヘッダ 44 バイトそのもの（これで反復回数の切り下げ攻撃を防ぐ）
+//   鍵: PBKDF2-HMAC-SHA512(パスワードのUTF-8, salt, iterations) の 32 バイト
+
+// ============================================================
+// 保管庫の暗号
+// ============================================================
+
+const HEADER_BYTES = 44;
+const MAGIC = [0x50, 0x56, 0x4c, 0x54]; // "PVLT"
+const SCHEMA_VERSION = 3;
+
+// Web Crypto の PBKDF2 は Swift 版より 4 倍ほど速いので、同じ体感の重さにするには
+// 反復回数を上げる必要がある。反復回数はファイルに記録されるので、
+// ここを上げても古い保管庫はそのまま開ける。
+const DEFAULT_ITERATIONS = 1_200_000;
+
+class VaultError extends Error {}
+
+function makeHeader(iterations = DEFAULT_ITERATIONS) {
+  const salt = crypto.getRandomValues(new Uint8Array(32));
+  return buildHeader(1, 1, iterations, salt);
+}
+
+function buildHeader(version, kdfID, iterations, salt) {
+  const raw = new Uint8Array(HEADER_BYTES);
+  raw.set(MAGIC, 0);
+  const view = new DataView(raw.buffer);
+  view.setUint16(4, version, false);
+  view.setUint16(6, kdfID, false);
+  view.setUint32(8, iterations, false);
+  raw.set(salt, 12);
+  return { version, kdfID, iterations, salt, raw };
+}
+
+function decodeHeader(bytes) {
+  if (bytes.length < HEADER_BYTES) throw new VaultError('保管庫ファイルが壊れているか、形式が違います。');
+  for (let i = 0; i < 4; i++) {
+    if (bytes[i] !== MAGIC[i]) throw new VaultError('保管庫ファイルが壊れているか、形式が違います。');
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, HEADER_BYTES);
+  const version = view.getUint16(4, false);
+  const kdfID = view.getUint16(6, false);
+  const iterations = view.getUint32(8, false);
+  if (version !== 1) throw new VaultError(`対応していないファイル形式です（version ${version}）。`);
+  if (kdfID !== 1) throw new VaultError(`対応していない鍵導出方式です（id ${kdfID}）。`);
+  if (iterations === 0) throw new VaultError('保管庫ファイルが壊れているか、形式が違います。');
+  return buildHeader(version, kdfID, iterations, bytes.slice(12, HEADER_BYTES));
+}
+
+async function deriveKey(password, header) {
+  const material = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-512', salt: header.salt, iterations: header.iterations },
+    material, 256
+  );
+  return crypto.subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+/// Swift の JSONDecoder の iso8601 は小数秒を受け付けないので、ミリ秒を落とす。
+function isoNoMillis(date = new Date()) {
+  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+async function seal(payload, key, header) {
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const sealed = new Uint8Array(await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: nonce, additionalData: header.raw, tagLength: 128 }, key, plaintext
+  ));
+  const file = new Uint8Array(HEADER_BYTES + 12 + sealed.length);
+  file.set(header.raw, 0);
+  file.set(nonce, HEADER_BYTES);
+  file.set(sealed, HEADER_BYTES + 12);
+  return file;
+}
+
+async function open(bytes, key, header) {
+  const body = bytes.slice(HEADER_BYTES);
+  if (body.length === 0) throw new VaultError('保管庫ファイルが壊れているか、形式が違います。');
+  let plaintext;
+  try {
+    plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: body.slice(0, 12), additionalData: header.raw, tagLength: 128 },
+      key, body.slice(12)
+    );
+  } catch {
+    // 認証タグが合わない。パスワード違いと改ざんは区別できない（区別する必要もない）。
+    throw new VaultError('マスターパスワードが違います。');
+  }
+  return normalizePayload(JSON.parse(new TextDecoder().decode(plaintext)));
+}
+
+/// 古い形式（v1 = entries、v2 = 墓標なし）も読めるようにする
+function normalizePayload(raw) {
+  if (Array.isArray(raw.items)) {
+    return {
+      schemaVersion: raw.schemaVersion ?? 2,
+      items: raw.items.map(normalizeItem),
+      deletions: raw.deletions ?? [],
+    };
+  }
+  if (Array.isArray(raw.entries)) {
+    return {
+      schemaVersion: 1,
+      items: raw.entries.map(entry => ({
+        id: entry.id,
+        category: 'login',
+        title: entry.title ?? '',
+        fields: [
+          { id: crypto.randomUUID(), label: 'ユーザー名', value: entry.username ?? '', kind: 'username', isCustom: false },
+          { id: crypto.randomUUID(), label: 'パスワード', value: entry.password ?? '', kind: 'password', isCustom: false },
+          { id: crypto.randomUUID(), label: 'ウェブサイト', value: entry.url ?? '', kind: 'url', isCustom: false },
+        ],
+        notes: entry.notes ?? '',
+        tags: entry.folder ? [entry.folder] : [],
+        isFavorite: false,
+        oneTimePasswordSecret: '',
+        passwordHistory: [],
+        createdAt: entry.createdAt,
+        updatedAt: entry.updatedAt,
+      })),
+      deletions: [],
+    };
+  }
+  return { schemaVersion: SCHEMA_VERSION, items: [], deletions: [] };
+}
+
+function normalizeItem(item) {
+  return {
+    id: item.id ?? crypto.randomUUID(),
+    category: item.category ?? 'login',
+    title: item.title ?? '',
+    fields: (item.fields ?? []).map(field => ({
+      id: field.id ?? crypto.randomUUID(),
+      label: field.label ?? '',
+      value: field.value ?? '',
+      kind: field.kind ?? 'text',
+      isCustom: field.isCustom ?? false,
+    })),
+    notes: item.notes ?? '',
+    tags: item.tags ?? [],
+    isFavorite: item.isFavorite ?? false,
+    oneTimePasswordSecret: item.oneTimePasswordSecret ?? '',
+    passwordHistory: item.passwordHistory ?? [],
+    trashedAt: item.trashedAt,
+    createdAt: item.createdAt ?? isoNoMillis(),
+    updatedAt: item.updatedAt ?? isoNoMillis(),
+  };
+}
+
+// ============================================================
+// 種別
+// ============================================================
+
+const FIELD_KINDS = {
+  text: { label: 'テキスト', concealed: false },
+  username: { label: 'ユーザー名', concealed: false },
+  password: { label: 'パスワード', concealed: true },
+  email: { label: 'メールアドレス', concealed: false },
+  url: { label: 'URL', concealed: false },
+  phone: { label: '電話番号', concealed: false },
+  pin: { label: '暗証番号', concealed: true },
+  cardNumber: { label: 'カード番号', concealed: true },
+  monthYear: { label: '有効期限', concealed: false },
+  multiline: { label: '複数行テキスト', concealed: false },
+};
+
+const CATEGORIES = {
+  login: {
+    name: 'ログイン', otp: true,
+    template: [['ユーザー名', 'username'], ['パスワード', 'password'], ['ウェブサイト', 'url']],
+    placeholder: 'GitHub',
+  },
+  secureNote: {
+    name: 'セキュアメモ', otp: false,
+    template: [], placeholder: '自宅のWi-Fi設定メモ',
+  },
+  creditCard: {
+    name: 'クレジットカード', otp: false,
+    template: [['名義人', 'text'], ['カード番号', 'cardNumber'], ['有効期限', 'monthYear'],
+               ['セキュリティコード', 'pin'], ['暗証番号', 'pin'], ['カード会社', 'text']],
+    placeholder: '楽天カード',
+  },
+  identity: {
+    name: 'ID・個人情報', otp: false,
+    template: [['氏名', 'text'], ['生年月日', 'text'], ['住所', 'multiline'],
+               ['メールアドレス', 'email'], ['電話番号', 'phone']],
+    placeholder: '自分のプロフィール',
+  },
+  apiCredential: {
+    name: 'APIキー', otp: true,
+    template: [['サービス名', 'text'], ['APIキー', 'password'], ['エンドポイント', 'url'], ['有効期限', 'text']],
+    placeholder: 'OpenAI API',
+  },
+  wifi: {
+    name: 'Wi-Fi', otp: false,
+    template: [['ネットワーク名（SSID）', 'text'], ['パスワード', 'password'], ['暗号化方式', 'text']],
+    placeholder: '自宅ルーター',
+  },
+  license: {
+    name: 'ライセンス', otp: false,
+    template: [['ライセンス名義', 'text'], ['ライセンスキー', 'password'], ['バージョン', 'text'], ['購入元', 'url']],
+    placeholder: 'Sketch ライセンス',
+  },
+};
+
+function makeItem(category = 'login') {
+  const now = isoNoMillis();
+  return {
+    id: crypto.randomUUID(),
+    category,
+    title: '',
+    fields: CATEGORIES[category].template.map(([label, kind]) => ({
+      id: crypto.randomUUID(), label, value: '', kind, isCustom: false,
+    })),
+    notes: '',
+    tags: [],
+    isFavorite: false,
+    oneTimePasswordSecret: '',
+    passwordHistory: [],
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+const isConcealed = kind => FIELD_KINDS[kind]?.concealed ?? false;
+const displayTitle = item => item.title.trim() || '名称未設定';
+const primaryPassword = item =>
+  item.fields.find(f => f.kind === 'password' && f.value)?.value ?? null;
+const primaryUsername = item =>
+  item.fields.find(f => (f.kind === 'username' || f.kind === 'email') && f.value)?.value ?? null;
+const primaryURL = item => item.fields.find(f => f.kind === 'url' && f.value)?.value ?? null;
+
+function groupedCardNumber(value) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length <= 4) return value;
+  return digits.match(/.{1,4}/g).join(' ');
+}
+
+function subtitle(item) {
+  if (item.category === 'creditCard') {
+    const digits = (item.fields.find(f => f.kind === 'cardNumber')?.value ?? '').replace(/\D/g, '');
+    if (digits.length >= 4) return '•••• ' + digits.slice(-4);
+    return item.fields.find(f => f.kind === 'text' && f.value)?.value ?? '';
+  }
+  // セキュアメモの中身は一覧に出さない。
+  // 秘密を隠すための種別なのに、1 行目を一覧に並べたら意味がなくなる
+  // （暗証番号をメモしていた場合、それがそのまま見えてしまう）。
+  if (item.category === 'secureNote') {
+    const lines = item.notes.trim() ? item.notes.trim().split('\n').length : 0;
+    return lines ? `${lines} 行のメモ` : '';
+  }
+  return primaryUsername(item) ?? primaryURL(item) ?? '';
+}
+
+/// 伏せ字の欄は値を検索対象にしない。
+/// 検索結果からパスワードの中身が推測できてしまうのを避けるため。
+function matches(item, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (displayTitle(item).toLowerCase().includes(q)) return true;
+  if (item.tags.some(tag => tag.toLowerCase().includes(q))) return true;
+  // 種別名も拾う。「ログイン」「カード」と打てば絞れるので、
+  // 画面に種別ごとの入れ物を並べる必要がなくなる。
+  if (CATEGORIES[item.category]?.name.toLowerCase().includes(q)) return true;
+  if (item.notes.toLowerCase().includes(q)) return true;
+  return item.fields.some(field => {
+    if (isConcealed(field.kind)) return field.label.toLowerCase().includes(q);
+    return field.label.toLowerCase().includes(q) || field.value.toLowerCase().includes(q);
+  });
+}
+
+// ===== crypto-extras.js =====
+// TOTP、パスワード生成、強度推定、点検、同期のマージ。
+// Swift 版の同名の処理を移したもので、テストベクタも同じものを使う。
+
+// ============================================================
+// ワンタイムパスワード（RFC 6238）
+// ============================================================
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function base32Decode(text) {
+  const cleaned = text.toUpperCase().replace(/[=\s-]/g, '');
+  if (!cleaned) return null;
+  const out = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const character of cleaned) {
+    const index = BASE32_ALPHABET.indexOf(character);
+    if (index < 0) return null;
+    buffer = (buffer << 5) | index;
+    bits += 5;
+    if (bits >= 8) {
+      out.push((buffer >> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  return out.length ? new Uint8Array(out) : null;
+}
+
+function base32Encode(bytes) {
+  let result = '';
+  let buffer = 0;
+  let bits = 0;
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      result += BASE32_ALPHABET[(buffer >> (bits - 5)) & 0x1f];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) result += BASE32_ALPHABET[(buffer << (5 - bits)) & 0x1f];
+  return result;
+}
+
+const HASH_NAMES = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+
+/// QR コードの中身（otpauth://totp/...）でも、素の Base32 文字列でも受け付ける。
+function parseOTP(raw) {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) return null;
+
+  if (trimmed.toLowerCase().startsWith('otpauth://')) {
+    let url;
+    try { url = new URL(trimmed); } catch { return null; }
+    if (url.host.toLowerCase() !== 'totp') return null;
+
+    const secret = base32Decode(url.searchParams.get('secret') ?? '');
+    if (!secret) return null;
+
+    const digits = Number(url.searchParams.get('digits'));
+    const period = Number(url.searchParams.get('period'));
+    const algorithm = (url.searchParams.get('algorithm') ?? 'SHA1').toUpperCase();
+
+    let issuer = url.searchParams.get('issuer') ?? null;
+    let account = null;
+    const label = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    if (label) {
+      const separator = label.indexOf(':');
+      if (separator >= 0) {
+        issuer = issuer ?? label.slice(0, separator);
+        account = label.slice(separator + 1).trim();
+      } else {
+        account = label;
+      }
+    }
+    return {
+      secret,
+      digits: digits >= 6 && digits <= 8 ? digits : 6,
+      period: period > 0 ? period : 30,
+      algorithm: HASH_NAMES[algorithm] ? algorithm : 'SHA1',
+      issuer, account,
+    };
+  }
+
+  const secret = base32Decode(trimmed);
+  if (!secret) return null;
+  return { secret, digits: 6, period: 30, algorithm: 'SHA1', issuer: null, account: null };
+}
+
+async function otpCode(config, date = new Date()) {
+  const counter = Math.floor(date.getTime() / 1000 / config.period);
+  return otpCodeForCounter(config, counter);
+}
+
+async function otpCodeForCounter(config, counter) {
+  const key = await crypto.subtle.importKey(
+    'raw', config.secret, { name: 'HMAC', hash: HASH_NAMES[config.algorithm] }, false, ['sign']
+  );
+  const message = new Uint8Array(8);
+  new DataView(message.buffer).setBigUint64(0, BigInt(counter), false);
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, message));
+
+  // RFC 4226 の動的切り出し: 最終バイト下位 4 ビットを開始位置に使う
+  const offset = mac[mac.length - 1] & 0x0f;
+  const truncated = ((mac[offset] & 0x7f) << 24) | (mac[offset + 1] << 16)
+                  | (mac[offset + 2] << 8) | mac[offset + 3];
+  return String(truncated % 10 ** config.digits).padStart(config.digits, '0');
+}
+
+function otpSecondsRemaining(config, date = new Date()) {
+  return config.period - Math.floor(date.getTime() / 1000) % config.period;
+}
+
+function formatOTP(code) {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
+// ============================================================
+// パスワード生成
+// ============================================================
+
+const AMBIGUOUS = new Set('0O1lI|`\'"~,.;:'.split(''));
+
+const GENERATOR_SETS = {
+  lower: 'abcdefghijklmnopqrstuvwxyz',
+  upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+  digits: '0123456789',
+  symbols: '!#$%&()*+-/<=>?@[]^_{|}~',
+};
+
+/// 剰余バイアスを避けた一様乱数。`% n` で済ませると小さい値が出やすくなる。
+function randomIndex(bound) {
+  const limit = Math.floor(0x100000000 / bound) * bound;
+  const buffer = new Uint32Array(1);
+  let value;
+  do {
+    crypto.getRandomValues(buffer);
+    value = buffer[0];
+  } while (value >= limit);
+  return value % bound;
+}
+
+function generatePassword(options) {
+  const pools = [];
+  if (options.lower) pools.push(GENERATOR_SETS.lower);
+  if (options.upper) pools.push(GENERATOR_SETS.upper);
+  if (options.digits) pools.push(GENERATOR_SETS.digits);
+  if (options.symbols) pools.push(GENERATOR_SETS.symbols);
+
+  const filtered = pools
+    .map(pool => options.avoidAmbiguous
+      ? [...pool].filter(character => !AMBIGUOUS.has(character)).join('')
+      : pool)
+    .filter(pool => pool.length > 0);
+  if (filtered.length === 0) return '';
+
+  const all = filtered.join('');
+  const length = Math.max(options.length, filtered.length);
+
+  // 有効にした種類が必ず 1 文字以上入るよう、先に 1 文字ずつ確保してから混ぜる
+  const characters = filtered.map(pool => pool[randomIndex(pool.length)]);
+  while (characters.length < length) characters.push(all[randomIndex(all.length)]);
+  for (let i = characters.length - 1; i > 0; i--) {
+    const j = randomIndex(i + 1);
+    [characters[i], characters[j]] = [characters[j], characters[i]];
+  }
+  return characters.join('');
+}
+
+function generatorEntropyBits(options) {
+  const pools = [];
+  if (options.lower) pools.push(GENERATOR_SETS.lower);
+  if (options.upper) pools.push(GENERATOR_SETS.upper);
+  if (options.digits) pools.push(GENERATOR_SETS.digits);
+  if (options.symbols) pools.push(GENERATOR_SETS.symbols);
+  const size = pools
+    .map(pool => options.avoidAmbiguous
+      ? [...pool].filter(character => !AMBIGUOUS.has(character)).length
+      : pool.length)
+    .reduce((total, count) => total + count, 0);
+  return size > 1 ? options.length * Math.log2(size) : 0;
+}
+
+// ============================================================
+// 強度の見積もり
+// ============================================================
+//
+// あくまで目安。実際の解読しやすさを保証するものではない。
+// 文字種・長さ・繰り返し・並び・ありがちな単語だけを見ている。
+
+const COMMON_PASSWORDS = new Set([
+  'password', 'passw0rd', 'letmein', 'welcome', 'admin', 'root', 'qwerty',
+  'monkey', 'dragon', 'iloveyou', 'sunshine', 'princess', 'football',
+  'baseball', 'abc', 'test', 'guest', 'master', 'login', 'hello',
+  'freedom', 'whatever', 'trustno', 'starwars', 'pokemon', 'computer',
+]);
+const KEYBOARD_RUNS = ['qwerty', 'asdf', 'zxcv', '1234', 'qwertz', 'azerty'];
+
+function characterPoolSize(password) {
+  let pool = 0;
+  if (/[a-z]/.test(password)) pool += 26;
+  if (/[A-Z]/.test(password)) pool += 26;
+  if (/[0-9]/.test(password)) pool += 10;
+  if (/[^A-Za-z0-9-￿]/.test(password)) pool += 33;
+  if (/[-￿]/.test(password)) pool += 200; // 日本語など
+  return pool;
+}
+
+function isContinuation(previous, current) {
+  if (previous === current) return true;
+  const a = previous.codePointAt(0);
+  const b = current.codePointAt(0);
+  if (a > 127 || b > 127) return false;
+  return b === a + 1 || b + 1 === a;
+}
+
+/// 連続した同じ文字や abc / 123 のような並びは 1 文字分として数えない
+function effectiveLength(password) {
+  let total = 0;
+  let runLength = 0;
+  let previous = null;
+  for (const character of password) {
+    if (previous !== null && isContinuation(previous, character)) {
+      runLength += 1;
+      total += Math.max(0.25, 1 - runLength * 0.25);
+    } else {
+      runLength = 0;
+      total += 1;
+    }
+    previous = character;
+  }
+  return total;
+}
+
+function estimateBits(password) {
+  if (!password) return 0;
+  const pool = characterPoolSize(password);
+  if (pool <= 1) return 0;
+
+  let bits = effectiveLength(password) * Math.log2(pool);
+  const uniqueRatio = new Set(password).size / password.length;
+  bits *= 0.55 + 0.45 * uniqueRatio;
+
+  const normalized = password.toLowerCase();
+  const lettersOnly = normalized.replace(/[^a-z]/g, '');
+  if (COMMON_PASSWORDS.has(lettersOnly) || COMMON_PASSWORDS.has(normalized)) {
+    return Math.min(bits, 8);
+  }
+  if ([...COMMON_PASSWORDS].some(word => word.length >= 5 && normalized.includes(word))) bits *= 0.5;
+  if (KEYBOARD_RUNS.some(run => normalized.includes(run))) bits *= 0.7;
+
+  return Math.max(bits, 1);
+}
+
+const STRENGTH_LEVELS = [
+  { limit: 28, label: 'とても弱い', rank: 0 },
+  { limit: 50, label: '弱い', rank: 1 },
+  { limit: 80, label: 'まずまず', rank: 2 },
+  { limit: 110, label: '強い', rank: 3 },
+  { limit: Infinity, label: 'とても強い', rank: 4 },
+];
+
+function strengthLevel(bits) {
+  return STRENGTH_LEVELS.find(level => bits < level.limit);
+}
+
+// ===== audit.js =====
+// 点検（保管庫全体の弱点の洗い出し）と、2 つの保管庫のマージ。
+// どちらも通信をせず、渡された値だけで判断する。
+
+
+
+// ============================================================
+// 点検
+// ============================================================
+
+const FINDING_KINDS = {
+  reused: {
+    title: '使い回している', icon: '🔁', severity: 0,
+    explanation: '1つのサービスが漏れると、同じパスワードを使った他のサービスも芋づる式に破られます。',
+  },
+  weak: {
+    title: '推測されやすい', icon: '⚠️', severity: 1,
+    explanation: '総当たりや辞書攻撃で破られやすいパスワードです。生成機能で作り直すのが確実です。',
+  },
+  old: {
+    title: '長く変えていない', icon: '🕰', severity: 2,
+    explanation: '1年以上変えていないパスワードです。気づかないうちに漏れている可能性があります。',
+  },
+  insecureURL: {
+    title: '保護されていないサイト', icon: '🔓', severity: 3,
+    explanation: 'http:// のサイトは通信が暗号化されません。https:// が使えないか確認してください。',
+  },
+};
+
+const AGE_THRESHOLD_MS = 365 * 24 * 60 * 60 * 1000;
+const WEAK_THRESHOLD_BITS = 50;
+
+/// 現在のパスワードを使い始めた日。
+/// 履歴の最新は「1つ前のパスワードを捨てた日」＝今のパスワードを設定した日にあたる。
+function lastPasswordChange(item) {
+  const times = (item.passwordHistory ?? []).map(change => Date.parse(change.changedAt));
+  return times.length ? Math.max(...times) : Date.parse(item.createdAt);
+}
+
+function audit(items, now = Date.now()) {
+  const active = items.filter(item => !item.trashedAt);
+  const findings = [];
+
+  // 使い回し: 同じパスワードを持つアイテムが 2 つ以上ある
+  const byPassword = new Map();
+  for (const item of active) {
+    const password = primaryPassword(item);
+    if (!password) continue;
+    if (!byPassword.has(password)) byPassword.set(password, []);
+    byPassword.get(password).push(item);
+  }
+  for (const group of byPassword.values()) {
+    if (group.length < 2) continue;
+    for (const item of group) {
+      const others = group.filter(other => other.id !== item.id).map(displayTitle).sort();
+      findings.push({
+        itemId: item.id, itemTitle: displayTitle(item), kind: 'reused',
+        detail: `同じパスワードを ${others.join('、')} でも使っています`,
+      });
+    }
+  }
+
+  for (const item of active) {
+    const password = primaryPassword(item);
+    if (password) {
+      const bits = estimateBits(password);
+      if (bits < WEAK_THRESHOLD_BITS) {
+        findings.push({
+          itemId: item.id, itemTitle: displayTitle(item), kind: 'weak',
+          detail: `推定 ${Math.floor(bits)} ビット相当（${strengthLevel(bits).label}）`,
+        });
+      }
+      const changedAt = lastPasswordChange(item);
+      if (now - changedAt > AGE_THRESHOLD_MS) {
+        const years = (now - changedAt) / AGE_THRESHOLD_MS;
+        findings.push({
+          itemId: item.id, itemTitle: displayTitle(item), kind: 'old',
+          detail: `最後に変更してから約 ${years.toFixed(1)} 年`,
+        });
+      }
+    }
+    for (const field of item.fields) {
+      if (field.kind === 'url' && field.value.toLowerCase().startsWith('http://')) {
+        findings.push({
+          itemId: item.id, itemTitle: displayTitle(item), kind: 'insecureURL',
+          detail: field.value,
+        });
+      }
+    }
+  }
+
+  return findings.sort((a, b) => {
+    const bySeverity = FINDING_KINDS[a.kind].severity - FINDING_KINDS[b.kind].severity;
+    if (bySeverity !== 0) return bySeverity;
+    return a.itemTitle.localeCompare(b.itemTitle, 'ja');
+  });
+}
+
+// ============================================================
+// マージ
+// ============================================================
+//
+// 方針は「項目ごとに新しい方を採る」。
+// 項目そのものは updatedAt、完全削除は墓標の deletedAt で比べる。
+// どちらの側から取り込んでも同じ結果になり、何度繰り返しても増殖しない。
+
+/// 墓標を保持しておく期間。これを過ぎたものは、
+/// もうすべての端末に伝わっているとみなして捨てる。
+const TOMBSTONE_LIFETIME_MS = 180 * 24 * 60 * 60 * 1000;
+
+function merge(local, remote, now = Date.now()) {
+  const summary = { added: 0, updated: 0, deleted: 0, unchanged: 0 };
+
+  const pick = (items) => {
+    const map = new Map();
+    for (const item of items) {
+      const existing = map.get(item.id);
+      if (!existing || Date.parse(item.updatedAt) > Date.parse(existing.updatedAt)) {
+        map.set(item.id, item);
+      }
+    }
+    return map;
+  };
+  const localItems = pick(local.items);
+  const remoteItems = pick(remote.items);
+
+  const deletions = new Map();
+  for (const deletion of [...(local.deletions ?? []), ...(remote.deletions ?? [])]) {
+    const existing = deletions.get(deletion.id);
+    if (!existing || Date.parse(deletion.deletedAt) > Date.parse(existing.deletedAt)) {
+      deletions.set(deletion.id, deletion);
+    }
+  }
+
+  const mergedItems = [];
+  const allIds = new Set([...localItems.keys(), ...remoteItems.keys(), ...deletions.keys()]);
+
+  for (const id of allIds) {
+    const localItem = localItems.get(id);
+    const remoteItem = remoteItems.get(id);
+    let winner = null;
+    if (localItem && remoteItem) {
+      winner = Date.parse(remoteItem.updatedAt) > Date.parse(localItem.updatedAt) ? remoteItem : localItem;
+    } else {
+      winner = localItem ?? remoteItem ?? null;
+    }
+    if (!winner) continue;
+
+    const deletion = deletions.get(id);
+    if (deletion && Date.parse(deletion.deletedAt) > Date.parse(winner.updatedAt)) {
+      if (localItem) summary.deleted += 1;
+      continue;
+    }
+
+    mergedItems.push(winner);
+    if (!localItem) summary.added += 1;
+    else if (JSON.stringify(winner) !== JSON.stringify(localItem)) summary.updated += 1;
+    else summary.unchanged += 1;
+  }
+
+  // 保存されるバイト列がぶれないよう順序を固定する
+  mergedItems.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+
+  const liveDeletions = [...deletions.values()]
+    .filter(deletion => now - Date.parse(deletion.deletedAt) < TOMBSTONE_LIFETIME_MS)
+    .sort((a, b) => Date.parse(a.deletedAt) - Date.parse(b.deletedAt));
+
+  return { payload: { schemaVersion: 3, items: mergedItems, deletions: liveDeletions }, summary };
+}
+
+function summaryText(summary) {
+  const parts = [];
+  if (summary.added) parts.push(`追加 ${summary.added}`);
+  if (summary.updated) parts.push(`更新 ${summary.updated}`);
+  if (summary.deleted) parts.push(`削除 ${summary.deleted}`);
+  return parts.length ? parts.join('、') : '変更はありませんでした';
+}
+
+// ===== csv.js =====
+// 他のパスワード管理ツールが書き出した CSV を読む。
+//
+// ここは保管庫の中身に直接なるので、黙って壊れる読み方をしてはいけない。
+// 引用符の中のカンマや改行を取りこぼすと、パスワードが途中で切れたまま
+// 保存され、しかも見た目では気づけない。
+//
+// この file は core.js に依存しない。項目に組み立てるのは呼び出し側の仕事で、
+// ここは「表を素直な記録に直す」ところまでしかやらない。
+
+/// RFC 4180 の CSV を読む。引用符の中の改行・カンマ、"" による引用符自身、
+/// Excel 経由で付く BOM に対応する。
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  let started = false;   // この行に何か書き始めたか（空行を落とすため）
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (quoted) {
+      if (ch === '"') {
+        // "" は引用符そのもの
+        if (text[i + 1] === '"') { field += '"'; i++; continue; }
+        quoted = false;
+        continue;
+      }
+      field += ch;
+      continue;
+    }
+
+    // 引用符は欄の先頭に来たときだけ意味を持つ。途中の " はただの文字。
+    if (ch === '"' && field === '') { quoted = true; started = true; continue; }
+    if (ch === ',') { row.push(field); field = ''; started = true; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') {
+      row.push(field);
+      if (started || row.some(value => value !== '')) rows.push(row);
+      row = []; field = ''; started = false;
+      continue;
+    }
+    field += ch;
+    started = true;
+  }
+  if (started || field !== '' || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  // 中身が何も無い行は落とす
+  return rows.filter(candidate => candidate.some(value => value.trim() !== ''));
+}
+
+/// 列名の同義語。書き出し元ごとに名前が違う。
+///
+/// 確認したもの:
+///   Chrome        name, url, username, password, note
+///   Bitwarden     folder, favorite, type, name, notes, login_uri,
+///                 login_username, login_password, login_totp
+///   1Password     Title, Url, Username, Password, OTPAuth, Tags, Notes
+///   KeePassXC     Group, Title, Username, Password, URL, Notes
+///   Apple / Safari Title, URL, Username, Password, Notes, OTPAuth
+const COLUMN_ALIASES = {
+  title:    ['name', 'title', 'account', 'accountname', 'displayname', '名前', 'タイトル'],
+  username: ['username', 'loginusername', 'user', 'userid', 'login', 'email', 'emailaddress',
+             'ユーザー名', 'メールアドレス'],
+  password: ['password', 'loginpassword', 'pass', 'パスワード'],
+  url:      ['url', 'loginuri', 'uri', 'website', 'site', 'weburl', 'urls', 'サイト'],
+  notes:    ['notes', 'note', 'comment', 'comments', 'メモ', '備考'],
+  totp:     ['logintotp', 'otpauth', 'totp', 'otp', 'twofactor', 'verificationcode',
+             'onetimepassword'],
+  tags:     ['folder', 'group', 'grouping', 'tags', 'tag', 'category', 'collection', 'type',
+             'フォルダ', 'タグ'],
+  favorite: ['favorite', 'favourite', 'starred', 'star'],
+};
+
+const normalize = value => value.trim().toLowerCase().replace(/[\s_\-.]/g, '');
+
+/// 見出し行から、どの列が何かを当てる。当てられなかった役割は入らない。
+function mapColumns(header) {
+  const seen = header.map(normalize);
+  const mapping = {};
+  for (const [role, names] of Object.entries(COLUMN_ALIASES)) {
+    const index = seen.findIndex(name => names.includes(name));
+    if (index >= 0) mapping[role] = index;
+  }
+  return mapping;
+}
+
+/// 表を記録の配列に直す。項目への組み立ては呼び出し側でやる。
+///
+/// 見出し行が無い（＝どの列も当てられない）場合は null を返す。
+/// 当てずっぽうに 1 列目をタイトル扱いすると、見出しがそのまま
+/// 1 件目の項目になって紛れ込む。
+///
+/// 見出しは当てられたが中身が 0 件、という場合は null ではなく空の records を返す。
+/// 「これは CSV ではない」と「中身が空だった」は、利用者に見せる言葉が違う。
+function toRecords(rows) {
+  if (!rows.length) return null;
+  const mapping = mapColumns(rows[0]);
+  // パスワードか題名のどちらも当てられないなら、CSV ではあっても別物
+  if (mapping.title === undefined && mapping.password === undefined) return null;
+
+  const pick = (row, role) => (mapping[role] === undefined ? '' : (row[mapping[role]] ?? '').trim());
+
+  const records = [];
+  for (const row of rows.slice(1)) {
+    const record = {
+      title: pick(row, 'title'),
+      username: pick(row, 'username'),
+      password: pick(row, 'password'),
+      url: pick(row, 'url'),
+      notes: pick(row, 'notes'),
+      totp: pick(row, 'totp'),
+      favorite: /^(1|true|yes|はい)$/i.test(pick(row, 'favorite')),
+      tags: splitTags(pick(row, 'tags')),
+    };
+    // 題名が無ければ URL から作る。空の題名の項目は探せない。
+    if (!record.title) record.title = hostOf(record.url) || record.username || '名称未設定';
+    // 何も中身が無い行は入れない
+    if (!record.password && !record.username && !record.notes && !record.url) continue;
+    records.push(record);
+  }
+  return { mapping, records };
+}
+
+function splitTags(value) {
+  if (!value) return [];
+  return [...new Set(value.split(/[,;/|]/).map(tag => tag.trim()).filter(Boolean))].slice(0, 8);
+}
+
+function hostOf(url) {
+  if (!url) return '';
+  try {
+    return new URL(url.includes('://') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/// 既にある項目と同じものを見分ける鍵。
+/// 題名とユーザー名が揃っていれば同じものとみなす。
+/// これが無いと、2 回取り込んだだけで全部が倍になる。
+function identity(title, username) {
+  return `${(title ?? '').trim().toLowerCase()} ${(username ?? '').trim().toLowerCase()}`;
+}
+
+// ===== 名前空間（元は import * as ...）=====
+const V = { HEADER_BYTES, SCHEMA_VERSION, DEFAULT_ITERATIONS, VaultError, makeHeader, decodeHeader, deriveKey, isoNoMillis, seal, open, normalizePayload, FIELD_KINDS, CATEGORIES, makeItem, isConcealed, displayTitle, primaryPassword, primaryUsername, primaryURL, groupedCardNumber, subtitle, matches };
+const X = { base32Decode, base32Encode, parseOTP, otpCode, otpCodeForCounter, otpSecondsRemaining, formatOTP, GENERATOR_SETS, generatePassword, generatorEntropyBits, estimateBits, STRENGTH_LEVELS, strengthLevel };
+const A = { FINDING_KINDS, AGE_THRESHOLD_MS, WEAK_THRESHOLD_BITS, lastPasswordChange, audit, TOMBSTONE_LIFETIME_MS, merge, summaryText };
+const C = { parseCSV, COLUMN_ALIASES, mapColumns, toRecords, identity };
+
+// ===== icons.js =====
+// アイコン。SF Symbols に寄せた線画で、太さと角の丸めを揃えてある。
+//
+// 絵文字をやめた理由: 環境ごとに絵柄が変わり、フルカラーで主張が強く、
+// 大きさも揃わない。単色の線画なら文字色に追従するので、
+// 選択行の上でも暗い背景でも同じように読める。
+
+const STROKED = {
+  // 種別
+  key: '<circle cx="8.5" cy="8.5" r="4"/><path d="M11.6 11.6 20 20M17 17l2-2M14.5 14.5l2.5-2.5"/>',
+  note: '<rect x="5" y="3.5" width="14" height="17" rx="2.5"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/>',
+  card: '<rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19M6 15h3"/>',
+  identity: '<rect x="2.5" y="4.5" width="19" height="15" rx="2.5"/><circle cx="8.5" cy="10.5" r="2.2"/><path d="M5 16.2c.6-1.6 2-2.4 3.5-2.4s2.9.8 3.5 2.4M15 9.5h4M15 13h4"/>',
+  terminal: '<rect x="2.5" y="4" width="19" height="16" rx="2.5"/><path d="M7 9.5 10 12l-3 2.5M12.5 15h5"/>',
+  wifi: '<path d="M2.5 8.6a15 15 0 0 1 19 0M5.8 12.2a10 10 0 0 1 12.4 0M9.2 15.7a5 5 0 0 1 5.6 0"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>',
+  seal: '<path d="M12 2.8 14.3 5l3-.4 1 2.9 2.6 1.6-1.1 2.9 1.1 2.9-2.6 1.6-1 2.9-3-.4L12 21.2 9.7 19l-3 .4-1-2.9L3.1 15l1.1-2.9L3.1 9.2l2.6-1.6 1-2.9 3 .4z"/><path d="m9 12 2.2 2.2L15.3 10"/>',
+
+  // アプリの印。アイコン（make-icon.py の dial）と同じ形にしてある。
+  vault: '<circle cx="12" cy="12" r="7.6"/><path d="M10.4 10.4 7.1 7.1M13.6 10.4 16.9 7.1M10.4 13.6 7.1 16.9M13.6 13.6 16.9 16.9"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+
+  // 画面の道具
+  grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',
+  star: '<path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/>',
+  shield: '<path d="M12 2.8 20 6v6c0 4.4-3.2 7.9-8 9.2-4.8-1.3-8-4.8-8-9.2V6z"/>',
+  shieldCheck: '<path d="M12 2.8 20 6v6c0 4.4-3.2 7.9-8 9.2-4.8-1.3-8-4.8-8-9.2V6z"/><path d="m8.6 11.8 2.4 2.4 4.4-4.6"/>',
+  tag: '<path d="M3.6 11.3V4.8a1.2 1.2 0 0 1 1.2-1.2h6.5c.3 0 .6.1.9.4l8 8a1.2 1.2 0 0 1 0 1.7l-6.5 6.5a1.2 1.2 0 0 1-1.7 0l-8-8c-.3-.3-.4-.6-.4-.9z"/><circle cx="7.8" cy="7.8" r="1.3"/>',
+  trash: '<path d="M4.5 6.5h15M9.5 6.5V4.8a1.3 1.3 0 0 1 1.3-1.3h2.4a1.3 1.3 0 0 1 1.3 1.3v1.7M6.3 6.5l.8 12a1.8 1.8 0 0 0 1.8 1.7h6.2a1.8 1.8 0 0 0 1.8-1.7l.8-12M10.5 10.5v6M13.5 10.5v6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  search: '<circle cx="10.7" cy="10.7" r="6.7"/><path d="m15.6 15.6 4.4 4.4"/>',
+  gear: '<circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.4 1.4 0 0 0 .3 1.6l.1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.4 1.4 0 0 0-1.6-.3 1.4 1.4 0 0 0-.9 1.3v.2a1.7 1.7 0 1 1-3.4 0v-.1a1.4 1.4 0 0 0-.9-1.3 1.4 1.4 0 0 0-1.6.3l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.4 1.4 0 0 0 .3-1.6 1.4 1.4 0 0 0-1.3-.9h-.2a1.7 1.7 0 1 1 0-3.4h.1a1.4 1.4 0 0 0 1.3-.9 1.4 1.4 0 0 0-.3-1.6l-.1-.1a1.7 1.7 0 1 1 2.4-2.4l.1.1a1.4 1.4 0 0 0 1.6.3h.1a1.4 1.4 0 0 0 .9-1.3v-.2a1.7 1.7 0 1 1 3.4 0v.1a1.4 1.4 0 0 0 .9 1.3 1.4 1.4 0 0 0 1.6-.3l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.4 1.4 0 0 0-.3 1.6v.1a1.4 1.4 0 0 0 1.3.9h.2a1.7 1.7 0 1 1 0 3.4h-.1a1.4 1.4 0 0 0-1.3.9z"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.6a4 4 0 0 1 8 0v2.9"/>',
+  copy: '<rect x="8.5" y="8.5" width="12" height="12" rx="2.5"/><path d="M15.5 5.5v-.7a1.3 1.3 0 0 0-1.3-1.3H4.8a1.3 1.3 0 0 0-1.3 1.3v9.4a1.3 1.3 0 0 0 1.3 1.3h.7"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.7 3.6M6.4 7.5A17 17 0 0 0 2.5 12S6 18.5 12 18.5c1.2 0 2.3-.3 3.3-.7M3 3l18 18M10 10a3 3 0 0 0 4 4"/>',
+  wand: '<path d="M10.4 3.2 12.3 8.1 17.2 10 12.3 11.9 10.4 16.8 8.5 11.9 3.6 10l4.9-1.9z"/><path d="M17.6 14.3l.9 2.2 2.2.9-2.2.9-.9 2.2-.9-2.2-2.2-.9 2.2-.9z"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2"/>',
+  warning: '<path d="M12 4.2 21 19.5H3z"/><path d="M12 10v4M12 16.8v.1"/>',
+  reuse: '<path d="M4.6 12a7.4 7.4 0 0 1 12.6-5.2l2.3 2.3M19.5 4.6v4.5H15"/><path d="M19.4 12a7.4 7.4 0 0 1-12.6 5.2l-2.3-2.3M4.5 19.4v-4.5H9"/>',
+  unlocked: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.6a4 4 0 0 1 7.5-1.9"/>',
+  back: '<path d="M15 5.5 8.5 12l6.5 6.5"/>',
+  broom: '<path d="M14.5 3.5 9 9M7.5 10.5 5 13c-1.5 1.5-1.5 4 0 5.5s4 1.5 5.5 0l2.5-2.5M6.5 9.5l4 4M12 20.5h8M14.5 17.5l4-4"/>',
+  inbox: '<path d="M3.5 13.5h4l1.3 2.5h6.4l1.3-2.5h4"/><path d="M5.6 5.2h12.8l3.1 8.3v3.8a2 2 0 0 1-2 2H4.5a2 2 0 0 1-2-2v-3.8z"/>',
+  download: '<path d="M12 3.5v11M7.5 10 12 14.5 16.5 10M4 17.5v1.4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.4"/>',
+  upload: '<path d="M12 14.5v-11M7.5 8 12 3.5 16.5 8M4 17.5v1.4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.4"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 6.5"/>',
+  circle: '<circle cx="12" cy="12" r="7.5"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+};
+
+// 塗りで描くもの（線画だと意味が伝わりにくいもの）
+const FILLED = {
+  starFill: '<path d="m12 3.6 2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.5 9.8l5.9-.9z"/>',
+};
+
+function icon(name, size = 17) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('aria-hidden', 'true');
+  svg.classList.add('icon');
+
+  if (FILLED[name]) {
+    svg.setAttribute('fill', 'currentColor');
+    svg.setAttribute('stroke', 'none');
+    svg.innerHTML = FILLED[name];
+  } else {
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '1.7');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    svg.innerHTML = STROKED[name] ?? STROKED.note;
+  }
+  return svg;
+}
+
+/// 種別ごとのアイコンと色。色は一覧を目で追うための手がかりで、
+/// macOS のフォルダタグのように控えめな彩度にしてある。
+const CATEGORY_LOOK = {
+  login: { icon: 'key', hue: 211 },
+  secureNote: { icon: 'note', hue: 45 },
+  creditCard: { icon: 'card', hue: 145 },
+  identity: { icon: 'identity', hue: 280 },
+  apiCredential: { icon: 'terminal', hue: 15 },
+  wifi: { icon: 'wifi', hue: 190 },
+  license: { icon: 'seal', hue: 330 },
+};
+
+const FINDING_ICONS = {
+  reused: 'reuse',
+  weak: 'warning',
+  old: 'clock',
+  insecureURL: 'unlocked',
+};
+
+// ===== app.js =====
+// 画面の組み立てと操作。core.js / crypto-extras.js / audit.js に依存する。
+
+
+
+
+
+// ============================================================
+// 状態
+//
+// 鍵と復号済みの項目はこのオブジェクトのメモリ上にしか無く、施錠すると捨てる。
+// JavaScript では確保した領域をゼロ埋めできないので、そこはネイティブ版に劣る。
+// ============================================================
+
+const state = {
+  key: null,
+  header: null,
+  items: [],
+  deletions: [],
+  findings: [],
+  fileHandle: null,   // File System Access API が使える場合の保存先
+  fileName: null,
+  fileMtime: null,    // 読み込んだ時点の更新時刻。外からの書き換えを見分けるのに使う
+  localSavedAt: null, // 端末の中に保存した時刻（ファイルに書けない環境）
+  dirty: false,       // どこにも書けていない変更があることを示す
+  selection: { kind: 'all' },
+  selectedId: null,
+  search: '',
+  revealed: new Set(),
+  lastActivity: Date.now(),
+  holds: 0,           // 0 より大きい間は自動施錠しない
+  view: 'list',       // いま出している画面: list | detail
+  cursor: -1,         // 一覧でキーボードが指している位置（-1 はまだ触っていない）
+  stash: null,        // 施錠時に保存できていなかった変更（暗号化したまま）
+};
+
+const CLIPBOARD_CLEAR_SECONDS = 30;
+const canUseFilePicker = typeof window.showSaveFilePicker === 'function';
+
+const settings = {
+  get autoLockMinutes() {
+    return Number(localStorage.getItem('passvault.autoLockMinutes') ?? 5);
+  },
+  set autoLockMinutes(value) {
+    localStorage.setItem('passvault.autoLockMinutes', String(value));
+  },
+  /// 別のタブや別のアプリへ移った時点で施錠する。
+  /// 席を立つときに閉じ忘れる、が一番ありがちな漏れ方なので既定で有効。
+  get lockWhenAway() {
+    return localStorage.getItem('passvault.lockWhenAway') !== 'off';
+  },
+  set lockWhenAway(value) {
+    localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
+  },
+};
+
+// ============================================================
+// 小さな道具
+// ============================================================
+
+const $ = selector => document.querySelector(selector);
+const el = (tag, props = {}, children = []) => {
+  const node = document.createElement(tag);
+  for (const [key, value] of Object.entries(props)) {
+    // aria-* や data-* のようにハイフンを含む名前は、プロパティとしては設定できない。
+    // Object.assign だと黙って無視され、読み上げには何も伝わらないまま気づけない。
+    if (key.includes('-')) node.setAttribute(key, value);
+    else node[key] = value;
+  }
+  for (const child of [].concat(children)) {
+    if (child != null) node.append(child);
+  }
+  return node;
+};
+
+let toastTimer = null;
+function toast(message) {
+  const node = $('#toast');
+  node.textContent = message;
+  node.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => node.classList.remove('on'), 2600);
+  noteActivity();
+}
+
+function noteActivity() { state.lastActivity = Date.now(); }
+
+async function copyPlain(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`${label}をコピーしました`);
+  } catch {
+    toast('コピーできませんでした（ブラウザが拒否しました）');
+  }
+}
+
+/// 秘密はしばらくしたら消す。
+/// ブラウザにはクリップボード履歴へ「保存するな」と伝える手段がないので、
+/// ネイティブ版よりここは弱い。
+async function copySecret(text, label) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(`${label}をコピーしました（${CLIPBOARD_CLEAR_SECONDS}秒で消去）`);
+    setTimeout(async () => {
+      try {
+        if ((await navigator.clipboard.readText()) === text) {
+          await navigator.clipboard.writeText('');
+        }
+      } catch { /* 読み取りが拒否される場合は消せない */ }
+    }, CLIPBOARD_CLEAR_SECONDS * 1000);
+  } catch {
+    toast('コピーできませんでした（ブラウザが拒否しました）');
+  }
+}
+
+const fmtDate = iso => new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
+const fmtDateTime = iso => new Date(iso).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
+
+// ============================================================
+// 保管庫の読み書き
+// ============================================================
+
+function payload() {
+  return { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions };
+}
+
+/// 保管庫を書き込む。**失敗を投げずに返す。**
+///
+/// 例外を投げっぱなしにすると、呼び出し側で握られずに
+/// 「画面には反映されているがファイルには書かれていない」状態が
+/// 何も表示されないまま残る。パスワード管理として最悪の失敗の仕方なので、
+/// 必ず結果を返して呼び出し側に判断させる。
+///
+/// 戻り値: { ok, reason?, message?, unsaved? }
+async function persist({ force = false } = {}) {
+  state.findings = A.audit(state.items);
+  if (!state.key || !state.header) return { ok: true };
+
+  let bytes;
+  try {
+    bytes = await V.seal(payload(), state.key, state.header);
+  } catch (caught) {
+    state.dirty = true;
+    return { ok: false, reason: 'seal', message: `暗号化に失敗しました: ${describe(caught)}` };
+  }
+
+  if (!state.fileHandle) {
+    // ファイルに書けない環境（iOS の Safari など）。この端末の中に置く。
+    //
+    // 以前はここで「抱えておく」とだけ返していたが、実際にはメモリ上にしか無く、
+    // タブを閉じた時点で消えていた。保存したつもりのものが消えるのは
+    // パスワード管理として最悪なので、必ずどこかに書く。
+    try {
+      await saveLocalVault(bytes, state.fileName ?? 'vault.pvlt');
+      state.localSavedAt = V.isoNoMillis();
+      state.dirty = false;
+      noteActivity();
+      return { ok: true, local: true };
+    } catch (caught) {
+      // 端末にも書けない。ここで ok を返すと消える変更を放置することになる。
+      state.dirty = true;
+      return { ok: false, reason: 'local',
+               message: `この端末に保存できませんでした: ${describe(caught)}` };
+    }
+  }
+
+  if (!force) {
+    const conflict = await detectExternalChange();
+    if (conflict) {
+      state.dirty = true;
+      return { ok: false, reason: 'conflict', message: conflict };
+    }
+  }
+
+  try {
+    const writable = await state.fileHandle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    state.fileMtime = (await state.fileHandle.getFile()).lastModified;
+    state.dirty = false;
+    noteActivity();
+    return { ok: true };
+  } catch (caught) {
+    state.dirty = true;
+    return { ok: false, reason: 'write', message: `ファイルに書けませんでした: ${describe(caught)}` };
+  }
+}
+
+const describe = error => error?.message ?? String(error);
+
+/// ファイルが自分以外に書き換えられていないかを見る。
+///
+/// クラウド同期のフォルダに置いている場合、別の端末の変更が降りてくることがある。
+/// それに気づかず上書きすると、相手の変更が黙って消える。
+async function detectExternalChange() {
+  if (state.fileMtime == null) return null;
+  try {
+    const current = (await state.fileHandle.getFile()).lastModified;
+    if (current > state.fileMtime) {
+      const when = new Date(current).toLocaleString('ja-JP');
+      return `保管庫ファイルが他の場所で変更されています（${when}）。`
+           + 'クラウドの同期や、別の端末での編集が考えられます。';
+    }
+  } catch {
+    // 消された・移動されたなど。書き込みのときに改めて失敗するのでここでは通す。
+  }
+  return null;
+}
+
+/// 別の端末の変更を、こちらから取りに行く。
+///
+/// 保存しようとするまで気づかない作りだと、相手の変更を知らないまま
+/// 古い内容を眺めて編集し続けることになる。クラウド同期のフォルダに
+/// 置いている場合、相手の変更はこちらに断りなく降りてくる。
+///
+/// 読み込むかどうかは必ず画面側が訊く。黙って差し替えると編集中の内容が消える。
+let pollingRemote = false;
+async function pollRemoteChange() {
+  if (!state.key || !state.fileHandle || state.fileMtime == null) return false;
+  if (state.holds > 0 || pollingRemote || !hooks.onRemoteChange) return false;
+  pollingRemote = true;
+  try {
+    const file = await state.fileHandle.getFile();
+    if (file.lastModified <= state.fileMtime) return false;
+    return await hooks.onRemoteChange(new Date(file.lastModified));
+  } catch {
+    // 消された・移動されたなど。保存のときに改めて失敗するのでここでは黙る。
+    return false;
+  } finally {
+    pollingRemote = false;
+  }
+}
+
+/// 画面から呼ぶ保存。失敗は必ず利用者に見える形にする。
+async function save() {
+  const result = await persist();
+  if (result.ok) return true;
+
+  if (result.reason === 'conflict') {
+    // 画面側が用意していれば、上書き／取り込み／何もしない の 3 択を出す。
+    if (hooks.onConflict) return hooks.onConflict(result.message);
+
+    // 画面側が用意されていない状況（本来は起きない）。
+    // 訊ねる手段が無いまま上書きすると相手の変更を黙って消すので、何もしない。
+    toast(`${result.message} 保存を中止しました。`);
+    render();
+    return false;
+  }
+
+  toast(result.message);
+  render();
+  return false;
+}
+
+/// 競合を承知の上で上書きする
+async function forceSave() {
+  const forced = await persist({ force: true });
+  if (forced.ok) { toast('上書きして保存しました'); return true; }
+  toast(forced.message);
+  render();
+  return false;
+}
+
+/// いま保存先に入っているファイルの中身を読む（競合の解決に使う）。
+///
+/// rebase を付けたときだけ「これが今の下敷き」として更新時刻を覚え直す。
+/// 読んだだけで覚え直してはいけない。取り込みを途中で取り消したとき、
+/// 相手の変更を見なかったことにして、次の保存で黙って踏み潰すことになる。
+async function readVaultFileBytes({ rebase = false } = {}) {
+  if (!state.fileHandle) return null;
+  const file = await state.fileHandle.getFile();
+  if (rebase) state.fileMtime = file.lastModified;
+  return new Uint8Array(await file.arrayBuffer());
+}
+
+/// 相手の中身を取り込む。呼ぶ前に必ず利用者へ内容を見せて確認を取ること。
+async function applyMerge(remotePayload) {
+  const merged = A.merge(
+    { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions },
+    remotePayload
+  );
+  state.items = merged.payload.items;
+  state.deletions = merged.payload.deletions;
+  // 取り込んだ結果を書き戻す。相手の変更は既に手元にあるので上書きしてよい。
+  const written = await persist({ force: true });
+  if (!written.ok) { toast(written.message); render(); return null; }
+  return merged.summary;
+}
+
+/// 保管庫を暗号化したままファイルとして書き出す。
+///
+/// ブラウザにはダウンロードが完了したかを知る手段がない。
+/// なので「書き出した」と言い切らず、確かめるよう促す。
+/// 失敗しうるところは握りつぶさずに必ず画面へ出す。
+async function downloadVault({ forSync = false } = {}) {
+  const base = (state.fileName ?? 'vault.pvlt').replace(/\.pvlt$/, '');
+  // 控えには日付を入れる。本体と同じ名前にすると、どちらが使っている保管庫で
+  // どちらが控えなのか区別できなくなる。
+  //
+  // 同期用は逆に、保管庫と同じ名前でなければならない。クラウド上の
+  // 同じファイルに上書きして戻すのが目的なので、名前が変わると別物になる。
+  const name = forSync
+    ? `${base}.pvlt`
+    : `${base}-backup-${V.isoNoMillis().slice(0, 10)}.pvlt`;
+
+  let url = null;
+  try {
+    const bytes = await V.seal(payload(), state.key, state.header);
+    url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+
+    // Safari では body に入っていないと click が効かないことがある
+    const link = el('a', { href: url, download: name });
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } catch (caught) {
+    if (url) URL.revokeObjectURL(url);
+    toast(`書き出せませんでした: ${describe(caught)}`);
+    render();
+    return false;
+  }
+  // 早く解放しすぎるとダウンロードが途中で壊れる
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+
+  toast(forSync
+    ? `${name} を書き出しました。クラウド上の保管庫に上書きしてください`
+    : `${name} を書き出しました。ファイルができているか確かめてください`);
+  render();
+  return true;
+}
+
+// ---- この端末に置いておくもの ----
+//
+// 2 つの用途で IndexedDB を使う。どちらにも鍵とマスターパスワードは入らない。
+//
+//   handles: File System Access API のハンドル。「このファイルを触る権利」だけ。
+//            次に開くときブラウザが許可を訊き直すので、勝手に読まれることもない。
+//   vault:   暗号化した保管庫そのもの。ファイルに書けない環境（iOS の Safari）で使う。
+//            取り出せてもマスターパスワードが無ければ中身は読めない。
+
+const DB_NAME = 'passvault';
+const DB_VERSION = 2;
+const HANDLE_STORE = 'handles';
+const VAULT_STORE = 'vault';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      // 版 1 から上がってくる場合があるので、無いものだけ作る
+      const db = request.result;
+      if (!db.objectStoreNames.contains(HANDLE_STORE)) db.createObjectStore(HANDLE_STORE);
+      if (!db.objectStoreNames.contains(VAULT_STORE)) db.createObjectStore(VAULT_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+/// 失敗を投げる版。保管庫本体の読み書きに使う。
+async function withStore(storeName, mode, action) {
+  const db = await openDB();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(storeName, mode);
+      const request = action(transaction.objectStore(storeName));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+      // 書き込みが確定するのは transaction が終わったとき。
+      // request.onsuccess だけを見ていると、容量超過のように
+      // あとから起きる中断を取りこぼし、書けたつもりになる。
+      transaction.onabort = () => reject(transaction.error ?? new Error('保存が中断されました'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+/// 失敗を握りつぶす版。ハンドルは無くても動作に支障がないので静かに諦める。
+async function tryStore(storeName, mode, action) {
+  try {
+    return await withStore(storeName, mode, action);
+  } catch {
+    return undefined;
+  }
+}
+
+async function rememberVaultHandle(handle) {
+  if (!handle) return;
+  await tryStore(HANDLE_STORE, 'readwrite', store => store.put(handle, 'last'));
+}
+
+async function recallVaultHandle() {
+  return tryStore(HANDLE_STORE, 'readonly', store => store.get('last'));
+}
+
+async function forgetVaultHandle() {
+  await tryStore(HANDLE_STORE, 'readwrite', store => store.delete('last'));
+}
+
+/// 端末の中に保管庫を置く。**失敗は投げる**（呼び出し側が握って画面に出す）。
+async function saveLocalVault(bytes, name) {
+  await withStore(VAULT_STORE, 'readwrite', store =>
+    store.put({ bytes, name, savedAt: V.isoNoMillis() }, 'current'));
+}
+
+async function loadLocalVault() {
+  return tryStore(VAULT_STORE, 'readonly', store => store.get('current'));
+}
+
+async function forgetLocalVault() {
+  await withStore(VAULT_STORE, 'readwrite', store => store.delete('current'));
+}
+
+/// 保存領域を「消さないでほしい」とブラウザに申し出る。
+///
+/// iOS はしばらく使わないサイトの保存領域を消すことがある。
+/// ホーム画面に追加してあると通りやすい。断られても動作は続くので、
+/// 通ったかどうかを返して画面側に判断させる。
+async function requestDurableStorage() {
+  try {
+    if (!navigator.storage?.persist) return null;
+    if (await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return null;
+  }
+}
+
+function lock() {
+  state.key = null;
+  state.header = null;
+  state.items = [];
+  state.deletions = [];
+  state.findings = [];
+  state.revealed.clear();
+  state.selectedId = null;
+  state.selection = { kind: 'all' };
+  render();
+}
+
+/// 保存できていない変更を、暗号化したまま抱えておく。
+///
+/// 施錠は必ず行う（開けっ放しのほうが危ない）。ただし黙って捨てない。
+/// 平文と鍵は捨てるので施錠の意味は保たれ、次に同じパスワードで
+/// 解錠できたときだけ中身を取り戻せる。
+async function stashUnsaved() {
+  if (!state.dirty || !state.key || !state.header) return false;
+  try {
+    state.stash = {
+      bytes: await V.seal(payload(), state.key, state.header),
+      header: state.header,
+      at: V.isoNoMillis(),
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/// 自動施錠。保存できていない変更があれば、まず保存を試み、
+/// それでも駄目なら暗号化して抱えてから施錠する。
+async function lockForIdle() {
+  let stashed = false;
+  if (state.dirty) {
+    const written = await persist();
+    if (!written.ok || state.dirty) stashed = await stashUnsaved();
+  }
+  lock();
+  toast(stashed
+    ? '自動的に施錠しました。保存できていない変更は預かってあります'
+    : '自動的に施錠しました');
+}
+
+/// 解錠したあと、預かっていた変更があれば取り戻せるか調べる。
+/// 同じパスワードでなければ開けないので、取り違えは起きない。
+async function recoverStash(key) {
+  if (!state.stash) return null;
+  const { bytes, header, at } = state.stash;
+  try {
+    const recovered = await V.open(bytes, key, header);
+    return { payload: recovered, at };
+  } catch {
+    // 別の保管庫、あるいはパスワードを変えた後。取り戻せないので捨てる。
+    state.stash = null;
+    return null;
+  }
+}
+
+// ============================================================
+// 入口の画面
+// ============================================================
+
+function renderGate(mode) {
+  const gate = $('#gate');
+  gate.style.display = 'grid';
+  $('#app').classList.remove('on');
+  const card = mode === 'create' ? createCard() : unlockCard();
+  gate.replaceChildren(card);
+  // 前回の保管庫があれば、あとから差し込む（IndexedDB の読みは非同期なので）
+  if (!state.pendingBytes) offerRememberedVault(card);
+}
+
+async function offerRememberedVault(card) {
+  const handle = await recallVaultHandle();
+  if (!handle) { await offerLocalVault(card); return; }
+  if (state.pendingBytes) return;
+
+  const button = el('button', { className: 'push', textContent: `前回の保管庫を開く（${handle.name}）` });
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      // 一度閉じたあとは許可が切れているので、その場で訊き直す。
+      // 利用者のクリックが起点でないとブラウザが訊いてくれない。
+      let permission = await handle.queryPermission({ mode: 'readwrite' });
+      if (permission !== 'granted') {
+        permission = await handle.requestPermission({ mode: 'readwrite' });
+      }
+      if (permission !== 'granted') {
+        toast('ファイルへのアクセスが許可されませんでした');
+        button.disabled = false;
+        return;
+      }
+      const file = await handle.getFile();
+      state.fileHandle = handle;
+      state.fileName = file.name;
+      state.fileMtime = file.lastModified;
+      state.pendingBytes = new Uint8Array(await file.arrayBuffer());
+      renderGate('unlock');
+    } catch (caught) {
+      toast(`開けませんでした: ${caught.message ?? caught}`);
+      await forgetVaultHandle();
+      button.remove();
+    }
+  };
+
+  offerButton(card, button);
+}
+
+/// ファイルに書けない環境（iOS の Safari など）で、この端末に置いた保管庫を出す。
+async function offerLocalVault(card) {
+  if (state.pendingBytes) return;
+  const local = await loadLocalVault();
+  if (!local?.bytes) return;
+
+  const when = local.savedAt ? fmtDateTime(local.savedAt) : '時刻不明';
+  const button = el('button', { className: 'push',
+                                textContent: `この端末の保管庫を開く（${when}）` });
+  button.onclick = () => {
+    state.fileHandle = null;
+    state.fileName = local.name ?? 'vault.pvlt';
+    state.fileMtime = null;
+    state.localSavedAt = local.savedAt ?? null;
+    state.pendingBytes = new Uint8Array(local.bytes);
+    renderGate('unlock');
+  };
+  offerButton(card, button);
+}
+
+/// 「新しい保管庫をつくる」より上に差し込む
+function offerButton(card, button) {
+  card.insertBefore(button, card.querySelector('.tip') ?? null);
+  card.insertBefore(el('div', { style: 'height:8px' }), button.nextSibling);
+}
+
+function unlockCard() {
+  const password = el('input', { className: 'field', type: 'password', placeholder: 'マスターパスワード' });
+  const error = el('div', { className: 'error' });
+  const button = el('button', { className: 'push primary', textContent: 'ロック解除' });
+
+  const card = el('div', { className: 'gate-card' }, [
+    el('div', { className: 'gate-mark' }, [icon('lock', 40)]),
+    el('h1', { textContent: 'ロック中' }),
+    el('p', { className: 'lead', textContent: state.fileName ?? '保管庫ファイルを選んでください。' }),
+    password, error, button,
+    el('div', { style: 'height:8px' }),
+    el('button', { className: 'push', textContent: '別の保管庫ファイルを開く', onclick: pickVaultFile }),
+    el('div', { style: 'height:8px' }),
+    el('button', { className: 'push', textContent: '新しい保管庫をつくる', onclick: () => renderGate('create') }),
+  ]);
+
+  async function submit() {
+    if (!state.pendingBytes) { error.textContent = '保管庫ファイルを選んでください。'; return; }
+    if (!password.value) return;
+    button.disabled = true;
+    button.textContent = '確認中…';
+    error.textContent = '';
+    try {
+      // 施錠中にファイルが外で変わっているかもしれない（クラウド同期など）。
+      // 最初に読んだ内容のまま開くと、古い中身を編集することになる。
+      if (state.fileHandle) {
+        try { state.pendingBytes = await readVaultFileBytes({ rebase: true }) ?? state.pendingBytes; }
+        catch { /* 読めなければ手元の内容で試す */ }
+      }
+      const header = V.decodeHeader(state.pendingBytes);
+      const key = await V.deriveKey(password.value, header);
+      const opened = await V.open(state.pendingBytes, key, header);
+      password.value = '';
+      state.key = key;
+      state.header = header;
+      state.items = opened.items;
+      state.deletions = opened.deletions;
+      state.findings = A.audit(state.items);
+
+      // 施錠時に保存できていなかった変更があれば、戻すかどうか訊く
+      const held = await recoverStash(key);
+      if (held) {
+        const restore = await hooks.askConfirm?.(
+          '保存されていない変更があります',
+          `${new Date(held.at).toLocaleString('ja-JP')} に施錠したとき、`
+          + 'ファイルに書けていない変更が残っていました。取り戻しますか。',
+          { confirmLabel: '取り戻す' });
+        state.stash = null;
+        if (restore) {
+          state.items = held.payload.items;
+          state.deletions = held.payload.deletions;
+          state.findings = A.audit(state.items);
+          state.dirty = true;
+          const written = await persist();
+          toast(written.ok && !state.dirty
+            ? '保存されていない変更を取り戻して保存しました'
+            : '取り戻しました。まだファイルに書けていません');
+        }
+      }
+      // 古い形式で保存されていたら、現行形式に書き戻す
+      // 古い形式で保存されていたら現行形式に書き戻す。
+      // 失敗しても開くのは妨げないが、黙って済ませずに知らせる。
+      if (opened.schemaVersion < V.SCHEMA_VERSION) {
+        const written = await persist();
+        if (!written.ok) toast(`形式の書き戻しに失敗しました: ${written.message}`);
+      }
+      noteActivity();
+      render();
+    } catch (caught) {
+      error.textContent = caught.message ?? String(caught);
+      button.disabled = false;
+      button.textContent = 'ロック解除';
+      password.value = '';
+    }
+  }
+  button.onclick = submit;
+  password.onkeydown = event => { if (event.key === 'Enter') submit(); };
+  setTimeout(() => password.focus(), 0);
+  return card;
+}
+
+function createCard() {
+  const first = el('input', { className: 'field', type: 'password', placeholder: 'マスターパスワード' });
+  const second = el('input', { className: 'field', type: 'password', placeholder: 'もう一度入力' });
+  const hintLength = el('div', { className: 'hint' });
+  const hintMatch = el('div', { className: 'hint' });
+  const error = el('div', { className: 'error' });
+  const button = el('button', { className: 'push primary', textContent: '保管庫を作成', disabled: true });
+
+  function validate() {
+    const longEnough = first.value.length >= 12;
+    const same = first.value.length > 0 && first.value === second.value;
+    const mark = (node, ok, label) => {
+      node.className = `hint ${ok ? 'ok' : ''}`;
+      // 未達は「×」ではなく空の丸にする。まだ入力していないだけの状態を
+      // 間違いとして見せない。
+      node.replaceChildren(icon(ok ? 'check' : 'circle', 13), label);
+    };
+    mark(hintLength, longEnough, '12文字以上');
+    mark(hintMatch, same, '2回の入力が一致');
+    button.disabled = !(longEnough && same);
+  }
+  first.oninput = second.oninput = validate;
+  validate();
+
+  button.onclick = async () => {
+    button.disabled = true;
+    button.textContent = '鍵を生成中…';
+    error.textContent = '';
+    try {
+      state.header = V.makeHeader();
+      state.key = await V.deriveKey(first.value, state.header);
+      state.items = [];
+      state.deletions = [];
+      state.findings = [];
+      first.value = second.value = '';
+
+      if (canUseFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'vault.pvlt',
+          types: [{ description: 'PassVault の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
+        });
+        state.fileHandle = handle;
+        state.fileName = handle.name;
+        state.fileMtime = (await handle.getFile()).lastModified;
+        await rememberVaultHandle(handle);
+      } else {
+        state.fileName = 'vault.pvlt';
+      }
+      // 最初の書き込みが失敗したら、作れたつもりにさせてはいけない。
+      // 中身は空でも、ここで気づかないと以後の変更が全部宙に浮く。
+      const written = await persist();
+      if (!written.ok) {
+        error.textContent = `保管庫を作成できませんでした。${written.message}`;
+        state.key = null;
+        state.header = null;
+        state.fileHandle = null;
+        await forgetVaultHandle();
+        button.disabled = false;
+        button.textContent = '保管庫を作成';
+        validate();
+        return;
+      }
+      noteActivity();
+      render();
+      if (!state.fileHandle) {
+        // 端末の中に置いた。iOS はしばらく使わないと消すことがあるので、
+        // 消さないよう申し出たうえで、控えを勧める。
+        const durable = await requestDurableStorage();
+        toast(durable
+          ? 'この端末の中に保存しました。控えの書き出しもときどき行ってください'
+          : 'この端末の中に保存しました。ブラウザの都合で消えることがあるので、控えを書き出してください');
+      }
+    } catch (caught) {
+      error.textContent = caught.message ?? String(caught);
+      state.key = null;
+      button.disabled = false;
+      button.textContent = '保管庫を作成';
+      validate();
+    }
+  };
+
+  return el('div', { className: 'gate-card' }, [
+    el('div', { className: 'gate-mark' }, [icon('vault', 44)]),
+    el('h1', { textContent: '保管庫をつくる' }),
+    el('p', { className: 'lead', textContent: 'マスターパスワードだけがこの保管庫を開ける鍵です。どこにも保存されないので、忘れると中身は取り出せません。' }),
+    first, second,
+    el('div', { className: 'hints' }, [hintLength, hintMatch]),
+    error, button,
+    el('div', { style: 'height:8px' }),
+    el('button', { className: 'push', textContent: '既にある保管庫を開く', onclick: pickVaultFile }),
+    el('p', { className: 'tip', textContent: 'ヒント: 覚えやすい単語を4〜5個つないだ長い文（例: 紫の 亀 が 図書館 で 走る）は、記号混じりの短いパスワードより安全で覚えやすいです。' }),
+    el('p', { className: 'tip', textContent: '保管庫のファイル（.pvlt）は暗号化されたデータなので、ダブルクリックしても開きません。いつもこの画面から選んで開いてください。' }),
+  ]);
+}
+
+async function pickVaultFile() {
+  try {
+    let file;
+    if (typeof window.showOpenFilePicker === 'function') {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'PassVault の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
+      });
+      state.fileHandle = handle;
+      await rememberVaultHandle(handle);
+      file = await handle.getFile();
+    } else {
+      file = await pickViaInput();
+      state.fileHandle = null;
+    }
+    state.pendingBytes = new Uint8Array(await file.arrayBuffer());
+    state.fileName = file.name;
+    state.fileMtime = file.lastModified;
+    renderGate('unlock');
+  } catch { /* 選択の取り消し */ }
+}
+
+function pickViaInput() {
+  return new Promise((resolve, reject) => {
+    const input = el('input', { type: 'file', accept: '.pvlt,application/octet-stream' });
+    input.onchange = () => input.files[0] ? resolve(input.files[0]) : reject();
+    input.click();
+  });
+}
+
+// ============================================================
+// 一覧の絞り込み
+// ============================================================
+
+const activeItems = () => state.items.filter(item => !item.trashedAt);
+const trashedItems = () => state.items.filter(item => item.trashedAt);
+
+function allTags() {
+  return [...new Set(activeItems().flatMap(item => item.tags))]
+    .filter(Boolean).sort((a, b) => a.localeCompare(b, 'ja'));
+}
+
+function itemsFor(selection) {
+  switch (selection.kind) {
+    case 'all': return activeItems();
+    case 'favorites': return activeItems().filter(item => item.isFavorite);
+    case 'category': return activeItems().filter(item => item.category === selection.value);
+    case 'tag': return activeItems().filter(item => item.tags.includes(selection.value));
+    case 'watchtower': {
+      const flagged = new Set(state.findings.map(finding => finding.itemId));
+      return activeItems().filter(item => flagged.has(item.id));
+    }
+    case 'trash': return trashedItems();
+    default: return activeItems();
+  }
+}
+
+function visibleItems() {
+  return itemsFor(state.selection)
+    .filter(item => V.matches(item, state.search))
+    .sort((a, b) => V.displayTitle(a).localeCompare(V.displayTitle(b), 'ja'));
+}
+
+const selectionTitle = selection => ({
+  all: 'すべて', favorites: 'お気に入り', watchtower: '点検', trash: 'ゴミ箱',
+  category: V.CATEGORIES[selection.value]?.name, tag: selection.value,
+}[selection.kind] ?? 'すべて');
+
+const sameSelection = (a, b) => a.kind === b.kind && a.value === b.value;
+
+// ============================================================
+// 描画
+// ============================================================
+
+let lastShownItemId = null;
+
+function render() {
+  // 別の項目に移ったら、表示にしていた欄を伏せ字に戻す。
+  // 解除したままだと、画面を人に見せたときに前の項目の中身まで出てしまう。
+  if (state.selectedId !== lastShownItemId) {
+    state.revealed.clear();
+    lastShownItemId = state.selectedId;
+  }
+
+  if (!state.key) {
+    renderGate(state.pendingBytes ? 'unlock' : 'create');
+    return;
+  }
+  $('#gate').style.display = 'none';
+  $('#app').classList.add('on');
+
+  // 詳細を出している最中に項目が消えた（削除・取り込みなど）ら一覧へ戻す。
+  // 戻さないと、何も無い画面に取り残される。
+  if (state.view === 'detail' && !state.items.some(item => item.id === state.selectedId)) {
+    state.view = 'list';
+  }
+
+  renderBar();
+  if (state.view === 'detail') renderDetail();
+  else renderListView();
+}
+
+/// 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。
+function renderBar() {
+  const bar = $('#bar');
+
+  const tools = (...extra) => el('div', { className: 'bar-tools' }, [
+    ...extra,
+    el('button', { className: 'iconbtn', title: 'パスワード生成',
+                   'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('wand')]),
+    el('button', { className: 'iconbtn', title: '設定',
+                   'aria-label': '設定', onclick: openSettings }, [icon('gear')]),
+    el('button', { className: 'iconbtn', title: 'ロック',
+                   'aria-label': 'ロック', onclick: lock }, [icon('lock')]),
+  ]);
+
+  if (state.view === 'detail') {
+    const item = state.items.find(candidate => candidate.id === state.selectedId);
+    bar.replaceChildren(
+      el('button', { className: 'backbtn', title: '一覧へ戻る（Esc）',
+                     'aria-label': '一覧へ戻る', onclick: showList },
+         [icon('back', 18), el('span', { textContent: selectionTitle(state.selection) })]),
+      // 帯にも名前を出す。下へ辿ったときに何を見ているか分からなくならないように。
+      el('div', { className: 'bar-title', textContent: item ? V.displayTitle(item) : '' }),
+      tools(),
+    );
+    return;
+  }
+
+  const search = el('input', {
+    id: 'search', type: 'search', placeholder: '検索', value: state.search,
+    autocomplete: 'off', spellcheck: false,
+    oninput: event => {
+      state.search = event.target.value;
+      state.cursor = -1;
+      noteActivity();
+      renderListView();
+    },
+  });
+
+  bar.replaceChildren(
+    el('div', { className: 'brand', title: state.dirty ? '保存できていない変更があります' : '' }, [
+      icon('vault', 18),
+      el('span', { textContent: 'PassVault' }),
+      state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
+    ]),
+    el('div', { className: 'searchwrap' }, [search]),
+    tools(el('button', { className: 'iconbtn', title: '新しい項目',
+                         'aria-label': '新しい項目', onclick: openNewItemMenu }, [icon('plus')])),
+  );
+}
+
+/// 絞り込みの札。縦のサイドバーをやめて横一列にした。
+/// 中身のある区分しか出さない。空の器が並んでも選ぶ理由がない。
+function renderChips() {
+  const chips = [];
+  const add = (selection, label, extra) => {
+    const selected = sameSelection(selection, state.selection);
+    chips.push(el('button', {
+      className: `chip${selected ? ' sel' : ''}`,
+      onclick: () => {
+        state.selection = selection;
+        state.cursor = -1;
+        noteActivity();
+        renderListView();
+      },
+    }, [label, extra ?? null]));
+  };
+
+  // 出すのは「検索では言い表せない見方」だけにする。
+  // 種別もタグも検索語で絞れるので、札にすると器が並ぶだけになる。
+  // （実際、種別とタグを全部出したら 16 個並んで、縦のサイドバーの
+  //   散らかりを横に移しただけになった）
+  const n = (value, cls) => el('span', { className: cls ? `n ${cls}` : 'n', textContent: String(value) });
+
+  add({ kind: 'all' }, 'すべて', n(activeItems().length));
+  const favorites = itemsFor({ kind: 'favorites' }).length;
+  if (favorites) add({ kind: 'favorites' }, 'お気に入り', n(favorites));
+  if (state.findings.length) add({ kind: 'watchtower' }, '点検', n(state.findings.length, 'warn'));
+  if (trashedItems().length) add({ kind: 'trash' }, 'ゴミ箱', n(trashedItems().length));
+
+  // 種別やタグから入ってきた場合は、いま何で絞っているかを見せて戻せるようにする
+  if (state.selection.kind === 'category' || state.selection.kind === 'tag') {
+    add(state.selection, selectionTitle(state.selection), n(itemsFor(state.selection).length));
+  }
+
+  return el('div', { className: 'chips' }, chips);
+}
+
+function renderListView() {
+  const items = visibleItems();
+  const isTrash = state.selection.kind === 'trash';
+
+  // 選んでいた区分が空になったら「すべて」へ落とす（最後の 1 件を消したときなど）
+  if (!sameSelection(state.selection, { kind: 'all' }) && !items.length && !state.search) {
+    const stillThere = itemsFor(state.selection).length;
+    if (!stillThere) state.selection = { kind: 'all' };
+  }
+
+  // -1（まだキーボードを触っていない）はそのまま残す。
+  // ここで 0 に丸めると、開いた直後から 1 行目が光って選択済みに見える。
+  if (state.cursor >= 0) state.cursor = Math.min(state.cursor, items.length - 1);
+
+  const parts = [renderChips()];
+
+  if (isTrash && trashedItems().length) {
+    parts.push(el('div', { className: 'listtools' }, [
+      el('button', { className: 'linkbtn', onclick: emptyTrash }, [icon('broom', 14), 'ゴミ箱を空にする']),
+    ]));
+  }
+
+  if (items.length) {
+    parts.push(el('div', { className: 'list' }, items.map((item, index) => itemRow(item, index))));
+    parts.push(el('div', { className: 'listfoot', textContent: `${items.length} 件` }));
+  } else {
+    parts.push(el('div', { className: 'empty' }, [
+      el('span', { className: 'big' }, [icon(isTrash ? 'trash' : (state.search ? 'search' : 'inbox'), 38)]),
+      el('span', { className: 'lead', textContent:
+        isTrash ? 'ゴミ箱は空です'
+                : (state.search ? `「${state.search}」に一致するものはありません` : 'まだ何もありません') }),
+      state.search || isTrash ? null
+        : el('span', { textContent: '右上の ＋ から追加できます。' }),
+    ]));
+  }
+
+  $('#main').replaceChildren(el('div', { className: 'sheet' }, parts));
+}
+
+async function emptyTrash() {
+  const ok = await hooks.askConfirm?.('ゴミ箱を空にする',
+    'ゴミ箱の中身を完全に削除します。取り消せません。',
+    { confirmLabel: '完全に削除', destructive: true });
+  if (!ok) return;
+  const removed = trashedItems();
+  state.items = state.items.filter(item => !item.trashedAt);
+  state.deletions.push(...removed.map(item => ({ id: item.id, deletedAt: V.isoNoMillis() })));
+  if (!await save()) return;
+  toast('ゴミ箱を空にしました');
+  render();
+}
+
+function showList() {
+  state.view = 'list';
+  noteActivity();
+  render();
+}
+
+/// 種別やタグで絞って一覧へ戻る。詳細から「同じ仲間」へ行くための道。
+function filterBy(selection) {
+  state.selection = selection;
+  state.search = '';
+  state.cursor = -1;
+  state.view = 'list';
+  noteActivity();
+  render();
+}
+
+function openItem(id) {
+  state.selectedId = id;
+  state.view = 'detail';
+  noteActivity();
+  render();
+}
+
+function itemRow(item, index) {
+  const look = CATEGORY_LOOK[item.category];
+  const marks = el('span', { className: 'marks' });
+  if (item.oneTimePasswordSecret) {
+    const mark = icon('clock', 14); mark.setAttribute('aria-label', 'ワンタイムパスワードあり');
+    marks.append(mark);
+  }
+  if (state.findings.some(finding => finding.itemId === item.id)) {
+    const mark = icon('warning', 14); mark.classList.add('warn');
+    mark.setAttribute('aria-label', '点検の指摘あり');
+    marks.append(mark);
+  }
+  if (item.isFavorite) {
+    const mark = icon('starFill', 14); mark.classList.add('fav');
+    mark.setAttribute('aria-label', 'お気に入り');
+    marks.append(mark);
+  }
+
+  const row = el('div', {
+    className: `item-row${index === state.cursor ? ' cur' : ''}`,
+  }, [
+    el('button', {
+      className: 'item-open', onclick: () => openItem(item.id),
+    }, [
+      el('span', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 17)]),
+      el('span', { className: 'lines' }, [
+        el('span', { className: 't', textContent: V.displayTitle(item) }),
+        V.subtitle(item) ? el('span', { className: 's', textContent: V.subtitle(item) }) : null,
+      ]),
+      marks,
+    ]),
+  ]);
+
+  // 一覧から直接コピーできるようにする。9 割はこれで用が済むので、
+  // わざわざ詳細を開かせる理由がない。
+  const password = V.primaryPassword(item);
+  if (password && !item.trashedAt) {
+    row.append(el('button', {
+      className: 'quick', title: 'パスワードをコピー', 'aria-label': `${V.displayTitle(item)} のパスワードをコピー`,
+      onclick: event => { event.stopPropagation(); copySecret(password, 'パスワード'); },
+    }, [icon('copy', 15)]));
+  }
+  return row;
+}
+
+// 詳細と各ダイアログは detail.js 側に置く（この時点では未読込でも動くよう遅延で解決）
+const hooks = {};
+const renderDetail = () => hooks.renderDetail?.();
+const openGenerator = () => hooks.openGenerator?.();
+const openSettings = () => hooks.openSettings?.();
+const openNewItemMenu = () => hooks.openNewItemMenu?.();
+
+// ============================================================
+// 自動施錠
+// ============================================================
+
+let lockingForIdle = false;
+setInterval(async () => {
+  if (!state.key || state.holds > 0 || lockingForIdle) return;
+  const minutes = settings.autoLockMinutes;
+  if (minutes > 0 && Date.now() - state.lastActivity >= minutes * 60_000) {
+    lockingForIdle = true;
+    try { await lockForIdle(); } finally { lockingForIdle = false; }
+  }
+}, 5000);
+
+// 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
+setInterval(() => { pollRemoteChange(); }, 15_000);
+
+document.addEventListener('visibilitychange', () => {
+  // 画面に戻ってきたときは、待たずに一度見る。
+  // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
+  if (!document.hidden) { pollRemoteChange(); return; }
+
+  // 離れたら施錠する。ダイアログを開いている最中は、
+  // 取り込みの file 選択などで一時的に隠れることがあるので触らない。
+  if (settings.lockWhenAway && state.key && state.holds === 0) lockForIdle();
+});
+
+// ============================================================
+// キーボード
+// ============================================================
+//
+// 検索から手を離さずに目的の項目へ行けること。
+// この造りだと、探す→選ぶ→コピーが一続きの操作になる。
+
+document.addEventListener('keydown', event => {
+  if (!state.key || state.holds > 0) return;   // 施錠中とダイアログ表示中は触らない
+
+  const search = $('#search');
+  const typing = document.activeElement?.tagName === 'INPUT'
+              || document.activeElement?.tagName === 'TEXTAREA';
+
+  if (event.key === 'Escape') {
+    if (state.view === 'detail') { showList(); event.preventDefault(); return; }
+    if (state.search) {
+      state.search = '';
+      state.cursor = -1;
+      renderListView();
+      search?.focus();
+      event.preventDefault();
+    }
+    return;
+  }
+
+  if (state.view !== 'list') return;
+
+  const items = visibleItems();
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    if (!items.length) return;
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    state.cursor = Math.max(0, Math.min(items.length - 1, state.cursor + step));
+    renderListView();
+    $('.item-row.cur')?.scrollIntoView({ block: 'nearest' });
+    event.preventDefault();
+    return;
+  }
+
+  if (event.key === 'Enter' && items[state.cursor]) {
+    // 検索欄で入力中でも開ける。矢印で選んでそのまま Enter が自然な流れ。
+    openItem(items[state.cursor].id);
+    event.preventDefault();
+    return;
+  }
+
+  // 選んでいる項目を、開かずに写す。⌘C がパスワード、⌘⇧C がユーザー名。
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && items[state.cursor]) {
+    if (!window.getSelection()?.toString()) {
+      const item = items[state.cursor];
+      if (event.shiftKey) {
+        const username = V.primaryUsername(item);
+        if (username) { copyPlain(username, 'ユーザー名'); event.preventDefault(); }
+      } else {
+        const password = V.primaryPassword(item);
+        if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+      }
+    }
+    return;
+  }
+
+  // 文字を打ったら検索へ吸い込む。どこを触っていても探し始められる。
+  if (!typing && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    search?.focus();
+  }
+});
+
+for (const event of ['click', 'keydown', 'pointermove']) {
+  document.addEventListener(event, noteActivity, { passive: true });
+}
+
+window.addEventListener('beforeunload', event => {
+  if (state.dirty) { event.preventDefault(); event.returnValue = ''; }
+});
+
+
+// ===== detail.js =====
+// 項目の詳細表示と、各ダイアログ（編集・生成・設定）。
+
+
+
+
+
+
+const STRENGTH_COLORS = ['var(--danger)', 'var(--danger)', 'var(--warn)', 'var(--ok)', 'var(--accent)'];
+
+function strengthRow(password) {
+  const bits = X.estimateBits(password);
+  const level = X.strengthLevel(bits);
+  const color = STRENGTH_COLORS[level.rank];
+  return el('div', { className: 'strength' }, [
+    el('span', { className: 'bar' }, [
+      el('i', { style: `width:${Math.min(bits / 128, 1) * 100}%;background:${color}` }),
+    ]),
+    el('span', { className: 'lv', style: `color:${color}`, textContent: `${level.label}（推定 ${Math.floor(bits)} ビット）` }),
+  ]);
+}
+
+// ============================================================
+// 詳細
+// ============================================================
+
+let otpTimer = null;
+
+hooks.renderDetail = function renderDetail() {
+  clearInterval(otpTimer);
+  const column = $('#main');
+  const item = state.items.find(candidate => candidate.id === state.selectedId);
+
+  if (!item) {
+    // render() が一覧へ戻すので普通は通らない。通ったときに空白を残さないための備え。
+    column.replaceChildren(el('div', { className: 'sheet' }, [
+      el('div', { className: 'empty' }, [
+        el('span', { className: 'big' }, [icon('inbox', 38)]),
+        el('span', { className: 'lead', textContent: 'この項目は見つかりませんでした' }),
+      ]),
+    ]));
+    return;
+  }
+
+  const findings = state.findings.filter(finding => finding.itemId === item.id);
+  const parts = [];
+
+  const look = CATEGORY_LOOK[item.category];
+  const favButton = el('button', {
+    className: `iconbtn${item.isFavorite ? ' on' : ''}`,
+    title: item.isFavorite ? 'お気に入りから外す' : 'お気に入りに追加',
+    'aria-label': item.isFavorite ? 'お気に入りから外す' : 'お気に入りに追加',
+    onclick: async () => { item.isFavorite = !item.isFavorite; item.updatedAt = V.isoNoMillis(); await save(); render(); },
+  }, [icon(item.isFavorite ? 'starFill' : 'star', 19)]);
+  if (item.isFavorite) favButton.style.color = '#e8b021';
+
+  parts.push(el('div', { className: 'detail-head' }, [
+    el('div', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 26)]),
+    el('div', { className: 'grow' }, [
+      el('h1', { textContent: V.displayTitle(item) }),
+      el('button', {
+        className: 'cat', title: `${V.CATEGORIES[item.category].name}だけを見る`,
+        onclick: () => filterBy({ kind: 'category', value: item.category }),
+        textContent: V.CATEGORIES[item.category].name,
+      }),
+    ]),
+    favButton,
+  ]));
+
+  if (item.trashedAt) {
+    parts.push(el('div', { className: 'banner quiet' }, [
+      icon('trash'),
+      el('div', {}, [
+        el('div', { className: 'bt', textContent: 'この項目はゴミ箱にあります' }),
+        el('div', { className: 'bd', textContent: '元に戻すまで検索結果には出てきません。' }),
+      ]),
+    ]));
+  }
+
+  for (const finding of findings) {
+    const kind = A.FINDING_KINDS[finding.kind];
+    parts.push(el('div', { className: 'banner' }, [
+      icon(FINDING_ICONS[finding.kind]),
+      el('div', {}, [
+        el('div', { className: 'bt', textContent: kind.title }),
+        el('div', { className: 'bd', textContent: finding.detail }),
+      ]),
+    ]));
+  }
+
+  const filled = item.fields.filter(field => field.value.trim());
+  if (filled.length) {
+    parts.push(el('div', { className: 'card' }, filled.map(field => fieldRow(field))));
+  }
+
+  if (item.oneTimePasswordSecret) {
+    const otpCard = el('div', { className: 'card' });
+    parts.push(otpCard);
+    mountOTP(otpCard, item.oneTimePasswordSecret);
+  }
+
+  if (item.tags.length) {
+    // 押したらそのタグで絞る。札から種別とタグを外したぶん、
+    // ここが「同じ仲間を見る」ための入口になる。
+    parts.push(el('div', { className: 'tags' },
+      item.tags.map(tag => el('button', {
+        className: 'tag', title: `「${tag}」で絞り込む`,
+        onclick: () => filterBy({ kind: 'tag', value: tag }),
+      }, [icon('tag', 12), tag]))));
+  }
+
+  if (item.notes) {
+    parts.push(el('div', { className: 'lab', style: 'font-size:12px;color:var(--text-2);margin-bottom:4px', textContent: 'メモ' }));
+    parts.push(el('div', { className: 'notes', textContent: item.notes }));
+  }
+
+  if (item.passwordHistory.length) {
+    const list = el('div', { className: 'card' }, item.passwordHistory.map(change =>
+      el('div', { className: 'row' }, [
+        el('div', { className: 'grow' }, [
+          el('div', { className: 'val mono', textContent: change.value }),
+          el('div', { className: 'lab', textContent: `${fmtDateTime(change.changedAt)} まで使用` }),
+        ]),
+        el('button', {
+          className: 'iconbtn', title: 'コピー', 'aria-label': '以前のパスワードをコピー',
+          onclick: () => copySecret(change.value, '以前のパスワード'),
+        }, [icon('copy')]),
+      ])));
+    parts.push(el('details', { className: 'history' }, [
+      el('summary', { textContent: `以前のパスワード（${item.passwordHistory.length}件）` }),
+      list,
+    ]));
+  }
+
+  parts.push(el('div', { className: 'meta', textContent:
+    // 並べて出すので書式を揃える。片方だけ和暦風だと目が引っかかる。
+    `更新: ${fmtDateTime(item.updatedAt)}　作成: ${fmtDateTime(item.createdAt)}` }));
+
+  const actions = el('div', { className: 'actions' });
+  if (item.trashedAt) {
+    actions.append(
+      el('button', { className: 'push primary', textContent: '元に戻す', onclick: async () => {
+        delete item.trashedAt; item.updatedAt = V.isoNoMillis();
+        if (!await save()) return;
+        toast('元に戻しました'); render();
+      } }),
+      el('button', { className: 'push', textContent: '完全に削除', onclick: async () => {
+        const ok = await hooks.askConfirm('完全に削除',
+          `「${V.displayTitle(item)}」を完全に削除します。取り消せません。`,
+          { confirmLabel: '完全に削除', destructive: true });
+        if (!ok) return;
+        state.items = state.items.filter(candidate => candidate.id !== item.id);
+        state.deletions.push({ id: item.id, deletedAt: V.isoNoMillis() });
+        state.selectedId = null;
+        state.view = 'list';
+        if (!await save()) return;
+        toast('完全に削除しました'); render();
+      } }),
+    );
+  } else {
+    actions.append(
+      el('button', { className: 'push primary', textContent: '編集', onclick: () => openEditor(item) }),
+      el('button', { className: 'push', textContent: 'ゴミ箱に入れる', onclick: async () => {
+        item.trashedAt = V.isoNoMillis(); item.updatedAt = item.trashedAt;
+        state.selectedId = null;
+        state.view = 'list';
+        if (!await save()) return;
+        toast('ゴミ箱に入れました'); render();
+      } }),
+    );
+  }
+  parts.push(actions);
+
+  column.replaceChildren(el('div', { className: 'sheet detail' }, parts));
+};
+
+function fieldRow(field) {
+  const concealed = V.isConcealed(field.kind);
+  const revealed = state.revealed.has(field.id);
+  const shown = concealed && !revealed
+    ? '•'.repeat(Math.min(Math.max(field.value.length, 8), 24))
+    : (field.kind === 'cardNumber' ? V.groupedCardNumber(field.value) : field.value);
+
+  const value = field.kind === 'url'
+    ? el('a', { className: 'val', href: normalizeURL(field.value), target: '_blank', rel: 'noreferrer noopener', textContent: field.value })
+    : el('div', { className: `val${concealed ? ' mono' : ''}`, textContent: shown });
+
+  const body = el('div', { className: 'grow' }, [
+    el('div', { className: 'lab', textContent: field.label }),
+    value,
+    field.kind === 'password' && field.value ? strengthRow(field.value) : null,
+  ]);
+
+  const row = el('div', { className: 'row' }, [body]);
+  if (concealed) {
+    row.append(el('button', {
+      className: 'iconbtn', title: revealed ? '隠す' : '表示',
+      'aria-label': revealed ? `${field.label}を隠す` : `${field.label}を表示`,
+      onclick: () => {
+        revealed ? state.revealed.delete(field.id) : state.revealed.add(field.id);
+        hooks.renderDetail();
+      },
+    }, [icon(revealed ? 'eyeOff' : 'eye')]));
+  }
+  row.append(el('button', {
+    className: 'iconbtn', title: 'コピー', 'aria-label': `${field.label}をコピー`,
+    onclick: () => concealed ? copySecret(field.value, field.label) : copyPlain(field.value, field.label),
+  }, [icon('copy')]));
+  return row;
+}
+
+function normalizeURL(value) {
+  return value.includes('://') ? value : `https://${value}`;
+}
+
+/// ワンタイムパスワード。1 秒ごとに残り時間の輪が縮んでいく。
+function mountOTP(container, secret) {
+  const config = X.parseOTP(secret);
+  if (!config) {
+    container.replaceChildren(el('div', { className: 'row' }, [
+      icon('warning'),
+      el('div', { className: 'grow', textContent: 'ワンタイムパスワードの設定を読み取れませんでした' }),
+    ]));
+    return;
+  }
+
+  const code = el('div', { className: 'code', textContent: '••• •••' });
+  const ring = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  ring.setAttribute('viewBox', '0 0 32 32');
+  ring.setAttribute('class', 'ring');
+  ring.innerHTML =
+    '<circle cx="16" cy="16" r="14" fill="none" stroke="var(--hairline)" stroke-width="3"/>' +
+    '<circle id="arc" cx="16" cy="16" r="14" fill="none" stroke="var(--accent)" stroke-width="3"' +
+    ' stroke-linecap="round" transform="rotate(-90 16 16)"/>' +
+    '<text x="16" y="20" text-anchor="middle">0</text>';
+
+  container.replaceChildren(el('div', { className: 'otp' }, [
+    el('div', { className: 'grow' }, [
+      el('div', { className: 'lab', textContent: 'ワンタイムパスワード' }),
+      code,
+    ]),
+    ring,
+    el('button', {
+      className: 'iconbtn', title: 'コピー', 'aria-label': 'ワンタイムパスワードをコピー',
+      onclick: async () => copySecret(await X.otpCode(config), 'ワンタイムパスワード'),
+    }, [icon('copy')]),
+  ]));
+
+  const circumference = 2 * Math.PI * 14;
+  async function tick() {
+    const remaining = X.otpSecondsRemaining(config);
+    code.textContent = X.formatOTP(await X.otpCode(config));
+    code.style.color = remaining <= 5 ? 'var(--warn)' : '';
+    const arc = ring.querySelector('#arc');
+    arc.setAttribute('stroke-dasharray', String(circumference));
+    arc.setAttribute('stroke-dashoffset', String(circumference * (1 - remaining / config.period)));
+    arc.setAttribute('stroke', remaining <= 5 ? 'var(--warn)' : 'var(--accent)');
+    ring.querySelector('text').textContent = String(remaining);
+  }
+  tick();
+  otpTimer = setInterval(tick, 1000);
+}
+
+// ============================================================
+// 新規作成
+// ============================================================
+
+hooks.openNewItemMenu = function () {
+  const dialog = makeDialog('新しい項目', null);
+  const body = dialog.querySelector('.dlg-body');
+  body.append(el('div', { className: 'group' }, Object.entries(V.CATEGORIES).map(([id, category]) =>
+    el('button', { className: 'g-row', style: 'display:flex;gap:10px;align-items:center',
+      onclick: () => { dialog.close(); openEditor(V.makeItem(id), true); },
+    }, [
+      el('span', { className: 'avatar small', style: `--hue:${CATEGORY_LOOK[id].hue}` },
+        [icon(CATEGORY_LOOK[id].icon, 14)]),
+      el('span', { textContent: category.name }),
+    ]))));
+  dialog.showModal();
+};
+
+// ============================================================
+// 編集
+// ============================================================
+
+function openEditor(original, isNew = false) {
+  const draft = structuredClone(original);
+  const category = V.CATEGORIES[draft.category];
+  let tagText = draft.tags.join(', ');
+
+  const dialog = makeDialog(isNew ? `新規${category.name}` : '編集', async () => {
+    const title = draft.title.trim();
+    if (!title) { toast('タイトルを入力してください'); return false; }
+    draft.tags = tagText.split(',').map(tag => tag.trim()).filter(Boolean);
+    draft.oneTimePasswordSecret = draft.oneTimePasswordSecret.trim();
+    draft.updatedAt = V.isoNoMillis();
+
+    const index = state.items.findIndex(item => item.id === draft.id);
+    if (index >= 0) {
+      // パスワードが変わったら、古いものを履歴に残す
+      const previous = V.primaryPassword(state.items[index]);
+      if (previous && previous !== V.primaryPassword(draft)) {
+        draft.passwordHistory = [{ id: crypto.randomUUID(), value: previous, changedAt: V.isoNoMillis() },
+                                 ...draft.passwordHistory].slice(0, 20);
+      }
+      state.items[index] = draft;
+    } else {
+      state.items.push(draft);
+    }
+    state.selectedId = draft.id;
+    if (!await save()) return false;   // 失敗したらダイアログを閉じない
+    toast('保存しました');
+    render();
+    return true;
+  });
+
+  const body = dialog.querySelector('.dlg-body');
+
+  const titleInput = el('input', { className: 'field', value: draft.title, placeholder: category.placeholder,
+    oninput: event => { draft.title = event.target.value; } });
+  body.append(el('div', { className: 'group' }, [
+    el('div', { className: 'g-row' }, [el('span', { className: 'g-lab', textContent: 'タイトル' }), titleInput]),
+    el('div', { className: 'g-row between' }, [
+      el('span', { textContent: '種別' }),
+      el('span', { className: 'inline', style: 'color:var(--text-2)' },
+        [icon(CATEGORY_LOOK[draft.category].icon, 15), category.name]),
+    ]),
+  ]));
+
+  const fieldsGroup = el('div', { className: 'group' });
+  const renderFields = () => {
+    fieldsGroup.replaceChildren(...draft.fields.map((field, index) => editorField(draft, field, index, renderFields)));
+  };
+  renderFields();
+  if (draft.fields.length) {
+    body.append(el('div', { className: 'g-title', textContent: '項目' }), fieldsGroup);
+  } else {
+    body.append(fieldsGroup);
+  }
+
+  body.append(el('div', { className: 'group' }, [
+    el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '＋ 欄を追加',
+      onclick: async () => {
+        const label = await hooks.askText('欄を追加', '欄の名前',
+          { placeholder: '例: 復旧コード' });
+        if (!label) return;
+        draft.fields.push({ id: crypto.randomUUID(), label, value: '', kind: 'text', isCustom: true });
+        renderFields();
+      } }),
+  ]));
+
+  if (category.otp) {
+    const preview = el('div', { className: 'lab', style: 'display:flex;align-items:center;gap:5px' });
+    const otpInput = el('input', {
+      className: 'field', value: draft.oneTimePasswordSecret,
+      placeholder: 'otpauth://totp/... または Base32 のシークレット',
+      style: 'font-family:ui-monospace,monospace',
+      oninput: async event => { draft.oneTimePasswordSecret = event.target.value; await updatePreview(); },
+    });
+    async function updatePreview() {
+      const config = X.parseOTP(draft.oneTimePasswordSecret);
+      if (!draft.oneTimePasswordSecret.trim()) { preview.replaceChildren(); return; }
+      if (!config) {
+        preview.style.color = 'var(--warn)';
+        preview.replaceChildren(icon('warning', 13), 'この文字列からはコードを作れません');
+        return;
+      }
+      preview.style.color = 'var(--ok)';
+      preview.replaceChildren(icon('check', 13),
+        `${X.formatOTP(await X.otpCode(config))}（残り ${X.otpSecondsRemaining(config)} 秒）`);
+    }
+    updatePreview();
+    body.append(
+      el('div', { className: 'g-title', textContent: 'ワンタイムパスワード' }),
+      el('div', { className: 'group' }, [el('div', { className: 'g-row' }, [otpInput, preview])]),
+      el('div', { className: 'g-foot', textContent: '認証アプリの登録画面に出る「手動入力用のキー」か、QRコードの中身（otpauth://…）をそのまま貼り付けてください。' }),
+    );
+  }
+
+  const tagInput = el('input', { className: 'field', value: tagText, placeholder: 'カンマ区切り（例: 仕事, 経理）',
+    oninput: event => { tagText = event.target.value; } });
+  const existing = [...new Set(activeItems().flatMap(item => item.tags))].filter(Boolean).sort();
+  const suggestions = el('div', { style: 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px' },
+    existing.map(tag => el('button', { className: 'pill', textContent: tag, onclick: () => {
+      const tags = tagInput.value.split(',').map(t => t.trim()).filter(Boolean);
+      if (!tags.includes(tag)) tags.push(tag);
+      tagInput.value = tagText = tags.join(', ');
+    } })));
+  body.append(
+    el('div', { className: 'g-title', textContent: 'タグ' }),
+    el('div', { className: 'group' }, [el('div', { className: 'g-row' }, [tagInput, existing.length ? suggestions : null])]),
+  );
+
+  const notes = el('textarea', { className: 'field', rows: 4, value: draft.notes,
+    oninput: event => { draft.notes = event.target.value; } });
+  body.append(
+    el('div', { className: 'g-title', textContent: 'メモ' }),
+    el('div', { className: 'group' }, [el('div', { className: 'g-row' }, [notes])]),
+  );
+
+  dialog.showModal();
+  setTimeout(() => titleInput.focus(), 0);
+}
+
+function editorField(draft, field, index, refresh) {
+  const concealed = V.isConcealed(field.kind);
+  const key = `edit-${field.id}`;
+  const revealed = state.revealed.has(key);
+
+  const input = field.kind === 'multiline'
+    ? el('textarea', { className: 'field', rows: 3, value: field.value })
+    : el('input', { className: 'field', type: concealed && !revealed ? 'password' : 'text', value: field.value });
+  input.oninput = event => { field.value = event.target.value; if (field.kind === 'password') refreshStrength(); };
+  if (concealed) input.style.fontFamily = 'ui-monospace, monospace';
+
+  const strength = el('div');
+  const refreshStrength = () => {
+    strength.replaceChildren(field.value ? strengthRow(field.value) : el('span'));
+  };
+  refreshStrength();
+
+  const controls = el('div', { className: 'inline' }, [el('span', { className: 'grow' }, [input])]);
+  if (concealed) {
+    controls.append(el('button', { className: 'iconbtn',
+      title: revealed ? '隠す' : '表示', 'aria-label': revealed ? '隠す' : '表示',
+      onclick: () => { revealed ? state.revealed.delete(key) : state.revealed.add(key); refresh(); } },
+      [icon(revealed ? 'eyeOff' : 'eye')]));
+  }
+  if (field.kind === 'password') {
+    controls.append(el('button', { className: 'iconbtn', title: 'パスワードを生成',
+      'aria-label': 'パスワードを生成',
+      onclick: () => hooks.openGenerator(generated => {
+        field.value = generated;
+        input.value = generated;
+        state.revealed.add(key);
+        refresh();
+      }) }, [icon('wand')]));
+  }
+
+  const header = el('div', { className: 'inline' }, [
+    el('span', { className: 'g-lab grow', textContent: field.label }),
+    field.isCustom ? el('button', { className: 'iconbtn', title: 'この欄を削除',
+      'aria-label': 'この欄を削除',
+      onclick: () => { draft.fields.splice(index, 1); refresh(); } }, [icon('close', 14)]) : null,
+  ]);
+
+  return el('div', { className: 'g-row' }, [header, controls, field.kind === 'password' ? strength : null]);
+}
+
+// ============================================================
+// パスワード生成
+// ============================================================
+
+hooks.openGenerator = function (onUse) {
+  const options = { length: 20, lower: true, upper: true, digits: true, symbols: true, avoidAmbiguous: true };
+  let current = '';
+
+  const output = el('div', { className: 'val mono', style: 'font-size:17px;word-break:break-all;min-height:24px' });
+  const strength = el('div');
+  const lengthLabel = el('span', { textContent: '20 文字' });
+  const bitsLabel = el('span', { style: 'color:var(--text-2);font-size:12px' });
+
+  function regenerate() {
+    current = X.generatePassword(options);
+    output.textContent = current;
+    strength.replaceChildren(current ? strengthRow(current) : el('span'));
+    lengthLabel.textContent = `${options.length} 文字`;
+    bitsLabel.textContent = `約 ${Math.floor(X.generatorEntropyBits(options))} ビット`;
+  }
+
+  const dialog = makeDialog('パスワード生成', onUse ? () => { onUse(current); return true; } : async () => {
+    await copySecret(current, '生成したパスワード');
+    return true;
+  }, onUse ? '使う' : 'コピー');
+
+  const body = dialog.querySelector('.dlg-body');
+  body.append(el('div', { className: 'group' }, [
+    el('div', { className: 'g-row' }, [output, strength]),
+    el('div', { className: 'g-row' }, [
+      el('button', { className: 'push', style: 'width:auto', onclick: regenerate },
+        [icon('wand', 14), ' 作り直す']),
+    ]),
+  ]));
+
+  const slider = el('input', { type: 'range', min: '8', max: '64', value: String(options.length),
+    style: 'width:100%', oninput: event => { options.length = Number(event.target.value); regenerate(); } });
+  body.append(
+    el('div', { className: 'g-title', textContent: '長さ' }),
+    el('div', { className: 'group' }, [
+      el('div', { className: 'g-row' }, [
+        el('div', { className: 'between' }, [lengthLabel, bitsLabel]),
+        slider,
+      ]),
+    ]),
+  );
+
+  const toggles = [
+    ['lower', '小文字 a-z'], ['upper', '大文字 A-Z'], ['digits', '数字 0-9'],
+    ['symbols', '記号 !#$%…'], ['avoidAmbiguous', '紛らわしい文字を除く（0 O 1 l I など）'],
+  ];
+  body.append(
+    el('div', { className: 'g-title', textContent: '使う文字' }),
+    el('div', { className: 'group' }, toggles.map(([key, label]) =>
+      el('label', { className: 'g-row between' }, [
+        el('span', { textContent: label }),
+        el('input', { type: 'checkbox', checked: options[key],
+          onchange: event => { options[key] = event.target.checked; regenerate(); } }),
+      ]))),
+  );
+
+  regenerate();
+  dialog.showModal();
+};
+
+// ============================================================
+// 設定
+// ============================================================
+
+hooks.openSettings = function () {
+  const dialog = makeDialog('設定', null);
+  const body = dialog.querySelector('.dlg-body');
+
+  const awaySwitch = el('input', { type: 'checkbox', checked: settings.lockWhenAway,
+    onchange: event => { settings.lockWhenAway = event.target.checked; } });
+
+  const lockSelect = el('select', { className: 'field', style: 'width:auto',
+    onchange: event => { settings.autoLockMinutes = Number(event.target.value); } });
+  for (const minutes of [0, 1, 5, 15, 30, 60]) {
+    lockSelect.append(el('option', { value: String(minutes),
+      textContent: minutes === 0 ? 'しない' : `${minutes} 分後`,
+      selected: settings.autoLockMinutes === minutes }));
+  }
+
+  body.append(
+    el('div', { className: 'g-title', textContent: 'セキュリティ' }),
+    el('div', { className: 'group' }, [
+      el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),
+      el('button', { className: 'g-row', style: 'color:var(--accent)',
+        textContent: 'マスターパスワードを変更…', onclick: () => { dialog.close(); openPasswordChange(); } }),
+      el('div', { className: 'g-row between' }, [
+        el('span', { textContent: '画面を離れたら施錠' }),
+        awaySwitch,
+      ]),
+      el('button', { className: 'g-row', style: 'color:var(--accent)',
+        textContent: '緊急用シートを作る…', onclick: () => { dialog.close(); openEmergencyKit(); } }),
+    ]),
+    el('div', { className: 'g-foot', textContent:
+      'マスターパスワードを忘れると中身は永久に取り出せません。復旧の窓口はありません。'
+      + '緊急用シートは、その備えとして紙に残すためのものです。' }),
+  );
+
+  const onFile = Boolean(state.fileHandle);
+  const fileRows = [
+    el('div', { className: 'g-row between' }, [
+      el('span', { textContent: '保存先' }),
+      el('span', { style: 'color:var(--text-2)',
+                   textContent: onFile ? (state.fileName ?? '未設定') : 'この端末の中' }),
+    ]),
+    el('div', { className: 'g-row between' }, [
+      el('span', { textContent: '自動保存' }),
+      el('span', { style: 'color:var(--text-2)',
+                   textContent: onFile ? 'ファイルへ書き込み' : 'この端末へ書き込み' }),
+    ]),
+  ];
+  if (!onFile) {
+    fileRows.push(el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '同期用に書き出す…',
+      onclick: () => downloadVault({ forSync: true }) }));
+  }
+  fileRows.push(
+    el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '保管庫を書き出す（バックアップ）', onclick: () => downloadVault() }),
+    el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '別の保管庫を取り込む…', onclick: () => { dialog.close(); importFromFile(); } }),
+    el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '他のアプリから取り込む（CSV）…', onclick: () => { dialog.close(); importFromCSV(); } }),
+  );
+
+  body.append(
+    el('div', { className: 'g-title', textContent: onFile ? 'ファイル' : '保存と同期' }),
+    el('div', { className: 'group' }, fileRows),
+    el('div', { className: 'g-foot', textContent: onFile
+      ? '書き出したファイルをコピーしておけばバックアップになります。中身は暗号化されているので、そのままクラウドに置いても平文は漏れません。ただしマスターパスワードを忘れると復元は不可能です。'
+      : 'このブラウザはファイルに直接書けないので、保管庫はこの端末の中に暗号化して置いてあります。'
+        + '別の端末と合わせるときは「同期用に書き出す」でクラウド上の保管庫に上書きし、'
+        + '相手の変更は「別の保管庫を取り込む」で受け取ってください。'
+        + 'ブラウザの保存領域は消えることがあるので、控えの書き出しも忘れずに。' }),
+  );
+
+  body.append(
+    el('div', { className: 'g-title', textContent: '保管庫' }),
+    el('div', { className: 'group' }, [
+      row('登録件数', `${activeItems().length} 件`),
+      row('ゴミ箱', `${trashedItems().length} 件`),
+      row('暗号化', 'AES-256-GCM'),
+      row('鍵導出', `PBKDF2-SHA512 / ${state.header.iterations.toLocaleString()} 回`),
+      row('クリップボード', `${CLIPBOARD_CLEAR_SECONDS} 秒で自動消去`),
+      // どの版が動いているかを見えるようにしておく。置き場所から配っている場合、
+      // 中身が入れ替わったかどうかを確かめる手がかりがこれしかない。
+      row('この画面の版', window.PASSVAULT_BUILD ?? '開発中（ビルド前）'),
+    ]),
+  );
+
+  function row(label, value) {
+    return el('div', { className: 'g-row between' }, [
+      el('span', { textContent: label }),
+      el('span', { style: 'color:var(--text-2)', textContent: value }),
+    ]);
+  }
+
+  dialog.showModal();
+};
+
+function openPasswordChange() {
+  const current = el('input', { className: 'field', type: 'password', placeholder: '現在のマスターパスワード' });
+  const next = el('input', { className: 'field', type: 'password', placeholder: '新しいマスターパスワード（12文字以上）' });
+  const confirmField = el('input', { className: 'field', type: 'password', placeholder: 'もう一度入力' });
+  const error = el('div', { className: 'error' });
+
+  const dialog = makeDialog('マスターパスワードを変更', async () => {
+    error.textContent = '';
+    if (next.value.length < 12) { error.textContent = '新しいパスワードは12文字以上にしてください。'; return false; }
+    if (next.value !== confirmField.value) { error.textContent = '新しいパスワードの入力が一致していません。'; return false; }
+    try {
+      // 現在のパスワードが本当に合っているかを、いまの鍵で作った暗号文で確かめる
+      const probe = await V.seal(payloadSnapshot(), state.key, state.header);
+      const currentKey = await V.deriveKey(current.value, state.header);
+      await V.open(probe, currentKey, state.header);
+    } catch {
+      error.textContent = '現在のマスターパスワードが違います。';
+      return false;
+    }
+    // 鍵を差し替える前に、書き込めることを確かめる。
+    // 書けないまま鍵だけ変えると、画面の鍵とファイルの鍵が食い違う。
+    const previousHeader = state.header;
+    const previousKey = state.key;
+    state.header = V.makeHeader();
+    state.key = await V.deriveKey(next.value, state.header);
+    if (!await save()) {
+      state.header = previousHeader;
+      state.key = previousKey;
+      error.textContent = 'ファイルに書けなかったため、変更を取り消しました。';
+      return false;
+    }
+    toast('マスターパスワードを変更しました');
+    return true;
+  }, '変更');
+
+  dialog.querySelector('.dlg-body').append(
+    el('div', { className: 'group' }, [
+      el('div', { className: 'g-row' }, [current]),
+      el('div', { className: 'g-row' }, [next]),
+      el('div', { className: 'g-row' }, [confirmField]),
+    ]),
+    error,
+    el('div', { className: 'g-foot', textContent: '変更すると保管庫全体を新しい鍵で書き直します。古いパスワードでは開けなくなります。' }),
+  );
+  dialog.showModal();
+}
+
+const payloadSnapshot = () =>
+  ({ schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions });
+
+// ============================================================
+// 取り込み（マージ）
+// ============================================================
+//
+// 失った同期の代わり。2 つの保管庫ファイルを突き合わせて、
+// 項目ごとに更新時刻の新しい方を残す。どちら側から取り込んでも同じ結果になる。
+
+/// 相手のファイルを開く。まず手元の鍵を試し、駄目ならパスワードを訊く。
+/// 別の端末でマスターパスワードを変えていた場合は鍵が違うため。
+async function decryptForeignVault(bytes) {
+  const header = V.decodeHeader(bytes);
+
+  const sameHeader = state.header
+    && header.raw.length === state.header.raw.length
+    && header.raw.every((byte, index) => byte === state.header.raw[index]);
+  if (sameHeader) {
+    try { return await V.open(bytes, state.key, header); } catch { /* 訊きに回る */ }
+  }
+
+  const password = await askPassword();
+  if (password === null) return null;
+  const key = await V.deriveKey(password, header);
+  return V.open(bytes, key, header);  // 違えば例外が出る
+}
+
+function askPassword() {
+  return new Promise(resolve => {
+    const input = el('input', { className: 'field', type: 'password',
+      placeholder: 'そのファイルのマスターパスワード' });
+    let answered = false;
+    const dialog = makeDialog('パスワードを入力', () => {
+      if (!input.value) return false;
+      answered = true;
+      resolve(input.value);
+      return true;
+    }, '開く');
+    dialog.onDismiss = () => { if (!answered) resolve(null); };
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'group' }, [el('div', { className: 'g-row' }, [input])]),
+      el('div', { className: 'g-foot', textContent:
+        'いま開いている保管庫とは別のパスワードで作られている場合に必要です。' }),
+    );
+    dialog.showModal();
+    setTimeout(() => input.focus(), 0);
+  });
+}
+
+/// 取り込む前に、何が起きるかを見せて確かめてもらう
+function confirmMerge(remotePayload, sourceLabel) {
+  return new Promise(resolve => {
+    const preview = A.merge(
+      { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions },
+      remotePayload
+    );
+    const localIds = new Set(state.items.map(item => item.id));
+    const added = preview.payload.items.filter(item => !localIds.has(item.id));
+    const updated = preview.payload.items.filter(item => {
+      const mine = state.items.find(candidate => candidate.id === item.id);
+      return mine && JSON.stringify(mine) !== JSON.stringify(item);
+    });
+
+    let answered = false;
+    const dialog = makeDialog('取り込みの確認', () => {
+      answered = true;
+      resolve(true);
+      return true;
+    }, '取り込む');
+    dialog.onDismiss = () => { if (!answered) resolve(false); };
+
+    const body = dialog.querySelector('.dlg-body');
+    body.append(
+      el('div', { className: 'g-foot', style: 'margin-top:0', textContent: `取り込み元: ${sourceLabel}` }),
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '結果' }),
+          el('span', { style: 'color:var(--text-2)', textContent: A.summaryText(preview.summary) }),
+        ]),
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '取り込み後の件数' }),
+          el('span', { style: 'color:var(--text-2)',
+                       textContent: `${preview.payload.items.filter(i => !i.trashedAt).length} 件` }),
+        ]),
+      ]),
+    );
+
+    const listGroup = (title, items) => {
+      if (!items.length) return;
+      body.append(
+        el('div', { className: 'g-title', textContent: `${title}（${items.length}）` }),
+        el('div', { className: 'group' }, items.slice(0, 12).map(item =>
+          el('div', { className: 'g-row' }, [
+            icon(CATEGORY_LOOK[item.category].icon, 14),
+            el('span', { style: 'margin-left:7px', textContent: V.displayTitle(item) }),
+          ]))),
+      );
+      if (items.length > 12) {
+        body.append(el('div', { className: 'g-foot', textContent: `ほか ${items.length - 12} 件` }));
+      }
+    };
+    listGroup('追加される項目', added);
+    listGroup('上書きされる項目', updated);
+
+    if (preview.summary.deleted) {
+      body.append(el('div', { className: 'g-foot', style: 'color:var(--warn)', textContent:
+        `相手側で完全に削除された ${preview.summary.deleted} 件は、こちらからも消えます。` }));
+    }
+    if (!added.length && !updated.length && !preview.summary.deleted) {
+      body.append(el('div', { className: 'g-foot', textContent: '変わるものはありません。' }));
+    }
+
+    dialog.showModal();
+  });
+}
+
+/// file を 1 つ選ばせる。取り消されたら null。
+///
+/// 選んでいる間は自動施錠を止める。環境によっては file 選択の窓が出た時点で
+/// こちらが「隠れた」扱いになり、離席施錠が誤爆して、
+/// 選び終えたときには施錠済み、ということが起こりうる。
+async function pickFile(accept, description) {
+  state.holds += 1;
+  try {
+    if (typeof window.showOpenFilePicker === 'function') {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description, accept: { 'application/octet-stream': accept.split(',') } }],
+      });
+      return await handle.getFile();
+    }
+    return await new Promise((resolve, reject) => {
+      const input = el('input', { type: 'file', accept });
+      input.onchange = () => (input.files[0] ? resolve(input.files[0]) : reject());
+      input.click();
+    });
+  } catch {
+    return null;
+  } finally {
+    state.holds = Math.max(0, state.holds - 1);
+    noteActivity();
+  }
+}
+
+/// 相手のファイルを選んで取り込む
+async function importFromFile() {
+  const file = await pickFile('.pvlt', 'PassVault の保管庫');
+  if (!file) return;
+  await importBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+}
+
+/// 他のアプリが書き出した CSV を取り込む。
+///
+/// Chrome / Safari / Bitwarden / 1Password / KeePassXC の書き出しを確認済み。
+/// 列は見出しの名前で当てる。位置で決め打つと、書き出し元が変わった途端に
+/// パスワードとユーザー名が入れ替わったまま気づけない。
+async function importFromCSV() {
+  const file = await pickFile('.csv,.txt', 'CSV');
+  if (!file) return;
+
+  let parsed;
+  try {
+    parsed = C.toRecords(C.parseCSV(await file.text()));
+  } catch (caught) {
+    toast(`読めませんでした: ${caught.message ?? caught}`);
+    return;
+  }
+  if (!parsed) {
+    toast('見出し行を読み取れませんでした。パスワードの列がある CSV を選んでください');
+    return;
+  }
+  if (!parsed.records.length) {
+    toast('中身のある行がありませんでした');
+    return;
+  }
+
+  // 既にあるものは飛ばす。飛ばさないと、2 回取り込んだだけで全部が倍になる。
+  const known = new Set(state.items.map(item =>
+    C.identity(V.displayTitle(item), V.primaryUsername(item) ?? '')));
+  const fresh = parsed.records.filter(record => !known.has(C.identity(record.title, record.username)));
+  const skipped = parsed.records.length - fresh.length;
+
+  if (!await confirmCSV(file.name, parsed, fresh, skipped)) {
+    toast('取り込みを中止しました');
+    return;
+  }
+  if (!fresh.length) return;
+
+  for (const record of fresh) {
+    const item = V.makeItem('login');
+    item.title = record.title;
+    item.fields[0].value = record.username;
+    item.fields[1].value = record.password;
+    item.fields[2].value = record.url;
+    item.notes = record.notes;
+    item.tags = record.tags;
+    item.isFavorite = record.favorite;
+    if (record.totp && X.parseOTP(record.totp)) item.oneTimePasswordSecret = record.totp;
+    state.items.push(item);
+  }
+  if (!await save()) return;
+  toast(`${fresh.length} 件を取り込みました`);
+  render();
+}
+
+/// 取り込む前に中身を見せる。パスワードは出さない。
+function confirmCSV(sourceName, parsed, fresh, skipped) {
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog('CSV の取り込み', () => { answered = true; resolve(true); return true; },
+                              fresh.length ? '取り込む' : '閉じる');
+    dialog.onDismiss = () => { if (!answered) resolve(false); };
+
+    const found = Object.keys(parsed.mapping);
+    const body = dialog.querySelector('.dlg-body');
+    body.append(
+      el('div', { className: 'g-foot', style: 'margin-top:0', textContent: `取り込み元: ${sourceName}` }),
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '読めた行' }),
+          el('span', { style: 'color:var(--text-2)', textContent: `${parsed.records.length} 件` }),
+        ]),
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '新しく入るもの' }),
+          el('span', { style: 'color:var(--accent)', textContent: `${fresh.length} 件` }),
+        ]),
+        skipped ? el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '既にあるので飛ばすもの' }),
+          el('span', { style: 'color:var(--text-2)', textContent: `${skipped} 件` }),
+        ]) : null,
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '当てられた列' }),
+          el('span', { style: 'color:var(--text-2)', textContent: found.join('、') }),
+        ]),
+      ]),
+    );
+
+    if (parsed.mapping.password === undefined) {
+      body.append(el('div', { className: 'banner', style: 'margin-bottom:14px' }, [
+        icon('warning'),
+        el('div', {}, [
+          el('div', { className: 'bt', textContent: 'パスワードの列が見つかりません' }),
+          el('div', { className: 'bd', textContent: 'このまま取り込むと、パスワードは空のまま入ります。' }),
+        ]),
+      ]));
+    }
+
+    if (fresh.length) {
+      body.append(
+        el('div', { className: 'g-title', textContent: `入るもの（${fresh.length}）` }),
+        el('div', { className: 'group' }, fresh.slice(0, 12).map(record =>
+          el('div', { className: 'g-row' }, [
+            icon('key', 14),
+            el('span', { style: 'margin-left:7px', textContent: record.title }),
+            record.username
+              ? el('span', { style: 'margin-left:8px;color:var(--text-3);font-size:12px',
+                             textContent: record.username })
+              : null,
+          ]))),
+      );
+      if (fresh.length > 12) {
+        body.append(el('div', { className: 'g-foot', textContent: `ほか ${fresh.length - 12} 件` }));
+      }
+      body.append(el('div', { className: 'g-foot', textContent:
+        'すべて「ログイン」として入ります。取り込んだ後で種別を変えられます。'
+        + ' 元の CSV はパスワードが平文なので、取り込んだら消してください。' }));
+    } else {
+      body.append(el('div', { className: 'g-foot', textContent:
+        'すべて既にある項目でした。取り込むものはありません。' }));
+    }
+
+    dialog.showModal();
+  });
+}
+
+/// 緊急用のシート。忘れたとき・自分がいなくなったときのための紙。
+///
+/// このアプリは復旧の窓口を持たない。マスターパスワードを失えば中身は永久に出ない。
+/// せめて「これが何で、どこにあって、どう開けるのか」だけは紙に残せるようにする。
+function openEmergencyKit() {
+  const dialog = makeDialog('緊急用シート', null);
+  const body = dialog.querySelector('.dlg-body');
+  const where = state.fileHandle ? state.fileName : 'この端末のブラウザの中（ファイルではありません）';
+  const opened = window.location.href.split('?')[0];
+
+  body.append(el('div', { className: 'kit' }, [
+    el('h2', { textContent: 'PassVault 緊急用シート' }),
+    el('p', { textContent:
+      'この紙は、パスワードの保管庫を開くための手引きです。'
+      + '保管庫そのものは暗号化されていて、下に書く「マスターパスワード」なしには誰にも開けません。' }),
+
+    el('h3', { textContent: '1. 保管庫の場所' }),
+    el('div', { className: 'kit-line', textContent: where }),
+
+    el('h3', { textContent: '2. 開き方' }),
+    el('div', { className: 'kit-line', textContent: opened }),
+    el('p', { textContent:
+      'この住所をブラウザで開き、上の保管庫ファイルを選んで、下のマスターパスワードを入れます。'
+      + '保管庫ファイル（.pvlt）は、ダブルクリックしても開きません。' }),
+
+    el('h3', { textContent: '3. マスターパスワード' }),
+    el('p', { textContent: 'ここに手で書いてください。アプリは決して書き込みません。' }),
+    el('div', { className: 'kit-blank' }),
+    el('p', { className: 'kit-warn', textContent:
+      'これを失うと、中身は永久に取り出せません。復旧の窓口はありません。'
+      + 'この紙は、金庫や重要書類と同じ場所に保管してください。' }),
+
+    el('h3', { textContent: '4. 技術的な内容（詳しい人向け）' }),
+    el('div', { className: 'kit-line', textContent:
+      `形式 PVLT / AES-256-GCM / PBKDF2-HMAC-SHA512 ${state.header.iterations.toLocaleString()} 回` }),
+    el('p', { textContent:
+      'ファイルの先頭 44 バイトが平文の見出しで、続きが暗号文です。'
+      + '仕様は PassVault の README にあります。' }),
+
+    el('div', { className: 'kit-foot', textContent: `作成: ${fmtDateTime(V.isoNoMillis())}` }),
+  ]));
+
+  body.append(el('div', { className: 'g-foot', textContent:
+    '印刷したら、この画面は閉じてください。画面に出したままにしないこと。' }));
+
+  const head = dialog.querySelector('.dlg-head');
+  head.append(el('button', { textContent: '印刷', onclick: () => window.print() }));
+  dialog.showModal();
+}
+
+async function importBytes(bytes, sourceLabel) {
+  let remote;
+  try {
+    remote = await decryptForeignVault(bytes);
+  } catch (caught) {
+    toast(`取り込めませんでした: ${caught.message ?? caught}`);
+    return false;
+  }
+  if (!remote) return false;  // パスワードの入力を取り消した
+
+  if (!await confirmMerge(remote, sourceLabel)) {
+    toast('取り込みを中止しました');
+    return false;
+  }
+
+  const summary = await applyMerge(remote);
+  if (!summary) return false;
+  toast(`取り込みました。${A.summaryText(summary)}`);
+  render();
+  return true;
+}
+
+/// 別の端末の変更が降りてきたときに出す（app.js の pollRemoteChange から）。
+///
+/// 「あとで」を選んだ版を覚えておく。覚えないと 15 秒ごとに同じことを訊きにくる。
+/// さらに新しい版が届けば、改めて訊く。
+let ignoredRemoteAt = 0;
+hooks.onRemoteChange = async function (when) {
+  if (when.getTime() <= ignoredRemoteAt) return false;
+
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog('別の端末の変更が届いています', null);
+    const finish = value => { answered = true; resolve(value); dialog.close(); };
+    const later = () => { ignoredRemoteAt = when.getTime(); finish(false); };
+    dialog.onDismiss = () => { if (!answered) { ignoredRemoteAt = when.getTime(); resolve(false); } };
+
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'banner', style: 'margin-bottom:14px' }, [
+        icon('reuse'),
+        el('div', {}, [
+          el('div', { className: 'bd', textContent:
+            `保管庫ファイルが ${fmtDateTime(when.toISOString())} に更新されています。`
+            + (state.dirty
+                ? 'こちらにも、まだ保存できていない変更があります。'
+                : '別の端末での編集が考えられます。') }),
+        ]),
+      ]),
+      el('div', { className: 'group' }, [
+        el('button', { className: 'g-row',
+          onclick: async () => {
+            const bytes = await readVaultFileBytes();
+            if (!bytes) { toast('ファイルを読めませんでした'); finish(false); return; }
+            dialog.close();
+            finish(await importBytes(bytes, `保存先のファイル（${state.fileName}）`));
+          } }, [
+          el('div', {}, [
+            el('div', { style: 'color:var(--accent);font-weight:600', textContent: '取り込む（おすすめ）' }),
+            el('div', { className: 'bd', textContent:
+              '中身を見せてから、項目ごとに新しい方を残します。取り込む前に内容を確認できます。' }),
+          ]),
+        ]),
+        el('button', { className: 'g-row', onclick: later }, [
+          el('div', {}, [
+            el('div', { style: 'font-weight:600', textContent: 'あとで' }),
+            el('div', { className: 'bd', textContent:
+              'この画面は古い内容のままになります。保存しようとしたときに改めて訊きます。' }),
+          ]),
+        ]),
+      ]),
+    );
+    dialog.showModal();
+  });
+};
+
+/// 保存しようとしたらファイルが外から変わっていた場合の 3 択
+hooks.onConflict = function (message) {
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog('保管庫が外から変更されています', null);
+    const finish = value => { answered = true; resolve(value); dialog.close(); };
+    dialog.onDismiss = () => { if (!answered) resolve(false); };
+
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'banner', style: 'margin-bottom:14px' }, [
+        icon('warning'),
+        el('div', {}, [
+          el('div', { className: 'bd', textContent: message }),
+        ]),
+      ]),
+      el('div', { className: 'group' }, [
+        el('button', { className: 'g-row',
+          onclick: async () => {
+            const bytes = await readVaultFileBytes();
+            if (!bytes) { toast('ファイルを読めませんでした'); finish(false); return; }
+            dialog.close();
+            finish(await importBytes(bytes, `保存先のファイル（${state.fileName}）`));
+          } }, [
+          el('div', {}, [
+            el('div', { style: 'color:var(--accent);font-weight:600', textContent: '取り込む（おすすめ）' }),
+            el('div', { className: 'bd', textContent: 'そちらの変更と手元の変更を突き合わせ、項目ごとに新しい方を残します。' }),
+          ]),
+        ]),
+        el('button', { className: 'g-row',
+          onclick: async () => { const ok = await forceSave(); render(); finish(ok); } }, [
+          el('div', {}, [
+            el('div', { style: 'font-weight:600', textContent: '上書きする' }),
+            el('div', { className: 'bd', textContent: 'そちらの変更は失われます。' }),
+          ]),
+        ]),
+        el('button', { className: 'g-row',
+          onclick: () => { toast('保存しませんでした。変更はまだファイルに書かれていません'); render(); finish(false); } }, [
+          el('div', {}, [
+            el('div', { style: 'font-weight:600', textContent: '何もしない' }),
+            el('div', { className: 'bd', textContent: '手元の変更は保存されないまま残ります。' }),
+          ]),
+        ]),
+      ]),
+    );
+    dialog.showModal();
+  });
+};
+
+// ============================================================
+// 訊ねるための小さなダイアログ
+// ============================================================
+//
+// ブラウザ標準の prompt / confirm を使わない理由:
+// 見た目が揃わないうえ、prompt は環境によっては封じられていて、
+// そのとき「欄を追加する」機能そのものが使えなくなる。
+
+/// はい / いいえ を訊く。閉じられた場合は「いいえ」。
+hooks.askConfirm = function (title, message, { confirmLabel = 'OK', destructive = false } = {}) {
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog(title, () => { answered = true; resolve(true); return true; }, confirmLabel);
+    dialog.onDismiss = () => { if (!answered) resolve(false); };
+    if (destructive) dialog.querySelector('.dlg-head button:last-child')?.classList.add('danger');
+
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row' }, [
+          el('div', { style: 'line-height:1.65', textContent: message }),
+        ]),
+      ]),
+    );
+    dialog.showModal();
+  });
+};
+
+/// 短い文字列を訊く。空のままなら確定させない。閉じられた場合は null。
+hooks.askText = function (title, label, { placeholder = '', initial = '', confirmLabel = '追加' } = {}) {
+  return new Promise(resolve => {
+    const input = el('input', { className: 'field', value: initial, placeholder });
+    let answered = false;
+    const dialog = makeDialog(title, () => {
+      const value = input.value.trim();
+      if (!value) return false;   // 空では閉じない
+      answered = true;
+      resolve(value);
+      return true;
+    }, confirmLabel);
+    dialog.onDismiss = () => { if (!answered) resolve(null); };
+
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row' }, [
+          el('span', { className: 'g-lab', textContent: label }),
+          input,
+        ]),
+      ]),
+    );
+    input.onkeydown = event => {
+      if (event.key === 'Enter') dialog.querySelector('.dlg-head button:last-child')?.click();
+    };
+    dialog.showModal();
+    setTimeout(() => input.focus(), 0);
+  });
+};
+
+// ============================================================
+// ダイアログの枠
+// ============================================================
+
+function makeDialog(title, onConfirm, confirmLabel = '保存') {
+  const dialog = el('dialog');
+  const confirmButton = onConfirm
+    ? el('button', { textContent: confirmLabel, onclick: async () => {
+        if (await onConfirm() !== false) dialog.close();
+      } })
+    : el('span', { style: 'width:44px' });
+
+  dialog.append(
+    el('div', { className: 'dlg-head' }, [
+      el('button', { textContent: onConfirm ? 'キャンセル' : '閉じる', onclick: () => dialog.close() }),
+      el('h2', { textContent: title }),
+      confirmButton,
+    ]),
+    el('div', { className: 'dlg-body' }),
+  );
+
+  // ダイアログを開いている間は画面を触らない時間が続くので、自動施錠を止める。
+  state.holds += 1;
+
+  // 後始末を close イベント任せにしない。
+  // 環境によっては <dialog> の close/cancel が飛んでこないことがあり、
+  // そうなると holds が減らないまま自動施錠が永久に止まる。
+  // close() を包んで、確実に一度だけ後始末する。
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    state.holds = Math.max(0, state.holds - 1);
+    noteActivity();
+    dialog.remove();
+    dialog.onDismiss?.();
+  };
+  const nativeClose = dialog.close.bind(dialog);
+  dialog.close = (...args) => {
+    try { nativeClose(...args); } finally { finish(); }
+  };
+  // Esc で閉じられた場合の保険（発火する環境ではこちらが働く）
+  dialog.addEventListener('cancel', finish);
+  dialog.addEventListener('close', finish);
+
+  document.body.append(dialog);
+  return dialog;
+}
+
+render();
+
+</script>
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
