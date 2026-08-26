@@ -31,6 +31,7 @@
 import * as V from './core.js';
 import * as X from './crypto-extras.js';
 import * as A from './audit.js';
+import * as C from './csv.js';
 
 const out = document.getElementById('out');
 const lines = [];
@@ -729,6 +730,72 @@ appState.key = null;
 appState.header = null;
 appState.fileHandle = null;
 appState.fileMtime = null;
+
+// ============================================================
+section('CSV の取り込み');
+// ============================================================
+// ここは保管庫の中身に直接なる。引用符の中のカンマや改行を取りこぼすと、
+// パスワードが途中で切れたまま保存され、しかも見た目では気づけない。
+
+check('素の CSV を読める',
+      JSON.stringify(C.parseCSV('a,b,c\n1,2,3\n')) === JSON.stringify([['a','b','c'],['1','2','3']]));
+check('引用符の中のカンマを 1 つの欄として読む', C.parseCSV('x,"a,b",y')[0][1] === 'a,b');
+check('引用符の中の改行を 1 つの欄として読む', C.parseCSV('x,"one\ntwo",y')[0][1] === 'one\ntwo');
+check('"" を引用符 1 つとして読む', C.parseCSV('x,"say ""hi""",y')[0][1] === 'say "hi"');
+check('欄の途中の " はただの文字', C.parseCSV('x,a"b,y')[0][1] === 'a"b');
+check('CRLF を読める',
+      JSON.stringify(C.parseCSV('a,b\r\n1,2\r\n')) === JSON.stringify([['a','b'],['1','2']]));
+check('BOM を落とす', C.parseCSV('﻿name,url')[0][0] === 'name');
+check('空行を落とす', C.parseCSV('a,b\n\n1,2\n').length === 2);
+check('末尾に改行が無くても最後の行を落とさない', C.parseCSV('a,b\n1,2').length === 2);
+check('空の欄を保つ', C.parseCSV('a,b,c\n1,,3')[1][1] === '');
+
+// 書き出し元ごとの見出しに当たること
+check('Chrome の見出しを当てられる',
+      C.mapColumns(['name','url','username','password','note']).password === 3);
+check('Bitwarden の見出しを当てられる', (() => {
+  const m = C.mapColumns(['folder','favorite','type','name','notes','fields','reprompt',
+                          'login_uri','login_username','login_password','login_totp']);
+  return m.username === 8 && m.password === 9 && m.totp === 10 && m.url === 7;
+})());
+check('1Password の見出しを当てられる', (() => {
+  const m = C.mapColumns(['Title','Url','Username','Password','OTPAuth','Tags','Notes']);
+  return m.title === 0 && m.password === 3 && m.totp === 4;
+})());
+check('KeePassXC の見出しを当てられる', (() => {
+  const m = C.mapColumns(['Group','Title','Username','Password','URL','Notes']);
+  return m.title === 1 && m.password === 3 && m.tags === 0;
+})());
+check('大文字・空白・下線の違いを吸収する', C.mapColumns(['Login_Username']).username === 0);
+
+const chromeCSV = C.toRecords(C.parseCSV(
+  'name,url,username,password,note\n' +
+  'GitHub,https://github.com,ren,"p,ss",メモ\n' +
+  ',https://www.example.co.jp/login,taro,abc,\n'));
+check('Chrome の書き出しを記録に直せる', chromeCSV.records.length === 2);
+check('引用符の中のカンマを含むパスワードが壊れない', chromeCSV.records[0].password === 'p,ss');
+check('題名が空なら URL の host から作る', chromeCSV.records[1].title === 'example.co.jp');
+
+check('見出しだけの CSV は 0 件',
+      C.toRecords(C.parseCSV('name,url,username,password')).records.length === 0);
+check('関係ない CSV は取り込まない（null）', C.toRecords(C.parseCSV('気温,湿度\n21,55')) === null);
+check('空の file は取り込まない', C.toRecords(C.parseCSV('')) === null);
+check('見出しだけなら「CSV ではない」ではなく「中身が空」として返す', (() => {
+  const r = C.toRecords(C.parseCSV('name,password'));
+  return r !== null && r.records.length === 0;
+})());
+
+const taggedCSV = C.toRecords(C.parseCSV('Title,Password,Group,Favorite\n仕事,x,"開発,社内",true'));
+check('フォルダ／グループをタグに直す',
+      JSON.stringify(taggedCSV.records[0].tags) === JSON.stringify(['開発','社内']));
+check('お気に入りの印を読む', taggedCSV.records[0].favorite === true);
+check('中身が何も無い行は落とす',
+      C.toRecords(C.parseCSV('name,username,password\nから,,\n実,u,p')).records.length === 1);
+
+// 2 回取り込んでも倍にならないための鍵
+check('同じ題名とユーザー名なら同じ鍵になる',
+      C.identity('GitHub', 'ren') === C.identity(' github ', 'REN'));
+check('ユーザー名が違えば別の鍵', C.identity('GitHub', 'ren') !== C.identity('GitHub', 'other'));
 
 // ============================================================
 section('種別のひな型');

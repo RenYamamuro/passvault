@@ -44,6 +44,14 @@ export const settings = {
   set autoLockMinutes(value) {
     localStorage.setItem('passvault.autoLockMinutes', String(value));
   },
+  /// 別のタブや別のアプリへ移った時点で施錠する。
+  /// 席を立つときに閉じ忘れる、が一番ありがちな漏れ方なので既定で有効。
+  get lockWhenAway() {
+    return localStorage.getItem('passvault.lockWhenAway') !== 'off';
+  },
+  set lockWhenAway(value) {
+    localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
+  },
 };
 
 // ============================================================
@@ -1063,10 +1071,14 @@ setInterval(async () => {
 // 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
 setInterval(() => { pollRemoteChange(); }, 15_000);
 
-// 画面に戻ってきたときは、待たずに一度見る。
-// 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) pollRemoteChange();
+  // 画面に戻ってきたときは、待たずに一度見る。
+  // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
+  if (!document.hidden) { pollRemoteChange(); return; }
+
+  // 離れたら施錠する。ダイアログを開いている最中は、
+  // 取り込みの file 選択などで一時的に隠れることがあるので触らない。
+  if (settings.lockWhenAway && state.key && state.holds === 0) lockForIdle();
 });
 
 // ============================================================
@@ -1116,11 +1128,17 @@ document.addEventListener('keydown', event => {
     return;
   }
 
-  // 選んでいる項目のパスワードを、開かずに写す
+  // 選んでいる項目を、開かずに写す。⌘C がパスワード、⌘⇧C がユーザー名。
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && items[state.cursor]) {
     if (!window.getSelection()?.toString()) {
-      const password = V.primaryPassword(items[state.cursor]);
-      if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+      const item = items[state.cursor];
+      if (event.shiftKey) {
+        const username = V.primaryUsername(item);
+        if (username) { copyPlain(username, 'ユーザー名'); event.preventDefault(); }
+      } else {
+        const password = V.primaryPassword(item);
+        if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+      }
     }
     return;
   }

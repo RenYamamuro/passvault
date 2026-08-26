@@ -545,6 +545,50 @@ select.field { padding: 7px 11px; }
   .sheet { max-width: 800px; padding: 30px 24px 72px; }
 }
 
+/* ---------- 緊急用シート ---------- */
+/*
+ * 紙に残すための一枚。画面では普通のダイアログとして見せ、
+ * 印刷のときだけ本文を紙いっぱいに広げて、他を全部消す。
+ */
+
+.kit { line-height: 1.7; }
+.kit h2 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+.kit h3 {
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  margin: 20px 0 6px; letter-spacing: 0.04em;
+}
+.kit p { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
+.kit-line {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
+  background: var(--sunken); border: 0.5px solid var(--hairline);
+  border-radius: var(--r-small); padding: 9px 12px; word-break: break-all;
+}
+/* 手で書き込むための空欄。アプリは決してここに書かない。 */
+.kit-blank {
+  border-bottom: 1.5px solid var(--text-3);
+  height: 34px; margin: 4px 0 12px;
+}
+.kit-warn {
+  color: var(--danger); font-weight: 500;
+  border-left: 3px solid var(--danger); padding-left: 10px;
+}
+.kit-foot { font-size: 11.5px; color: var(--text-3); margin-top: 22px; }
+
+@media print {
+  /* 紙には中身だけを出す。背景の一覧が透けて出ると、
+     項目名がそのまま印刷されてしまう。 */
+  body > *, #app, #gate, #toast { display: none !important; }
+  dialog { display: block !important; position: static; width: auto; max-width: none;
+           max-height: none; box-shadow: none; background: #fff; color: #000; }
+  dialog::backdrop { display: none; }
+  .dlg-head, .g-foot { display: none !important; }
+  .dlg-body { padding: 0; overflow: visible; }
+  .kit-line { background: #f4f4f4; border-color: #ccc; }
+  .kit-blank { border-bottom-color: #000; }
+  .kit-warn { color: #000; border-left-color: #000; }
+  .kit p, .kit h3 { color: #333; }
+}
+
 
 /* ===== theme-macos.css ===== */
 /* テーマ「macOS」
@@ -562,7 +606,7 @@ select.field { padding: 7px 11px; }
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "4dd8d5096afe";</script>
+<script>window.PASSVAULT_BUILD = "8d595e68c6ea";</script>
 <script>
 
 // ===== core.js =====
@@ -1291,10 +1335,162 @@ function summaryText(summary) {
   return parts.length ? parts.join('、') : '変更はありませんでした';
 }
 
+// ===== csv.js =====
+// 他のパスワード管理ツールが書き出した CSV を読む。
+//
+// ここは保管庫の中身に直接なるので、黙って壊れる読み方をしてはいけない。
+// 引用符の中のカンマや改行を取りこぼすと、パスワードが途中で切れたまま
+// 保存され、しかも見た目では気づけない。
+//
+// この file は core.js に依存しない。項目に組み立てるのは呼び出し側の仕事で、
+// ここは「表を素直な記録に直す」ところまでしかやらない。
+
+/// RFC 4180 の CSV を読む。引用符の中の改行・カンマ、"" による引用符自身、
+/// Excel 経由で付く BOM に対応する。
+function parseCSV(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  let started = false;   // この行に何か書き始めたか（空行を落とすため）
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (quoted) {
+      if (ch === '"') {
+        // "" は引用符そのもの
+        if (text[i + 1] === '"') { field += '"'; i++; continue; }
+        quoted = false;
+        continue;
+      }
+      field += ch;
+      continue;
+    }
+
+    // 引用符は欄の先頭に来たときだけ意味を持つ。途中の " はただの文字。
+    if (ch === '"' && field === '') { quoted = true; started = true; continue; }
+    if (ch === ',') { row.push(field); field = ''; started = true; continue; }
+    if (ch === '\r') continue;
+    if (ch === '\n') {
+      row.push(field);
+      if (started || row.some(value => value !== '')) rows.push(row);
+      row = []; field = ''; started = false;
+      continue;
+    }
+    field += ch;
+    started = true;
+  }
+  if (started || field !== '' || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  // 中身が何も無い行は落とす
+  return rows.filter(candidate => candidate.some(value => value.trim() !== ''));
+}
+
+/// 列名の同義語。書き出し元ごとに名前が違う。
+///
+/// 確認したもの:
+///   Chrome        name, url, username, password, note
+///   Bitwarden     folder, favorite, type, name, notes, login_uri,
+///                 login_username, login_password, login_totp
+///   1Password     Title, Url, Username, Password, OTPAuth, Tags, Notes
+///   KeePassXC     Group, Title, Username, Password, URL, Notes
+///   Apple / Safari Title, URL, Username, Password, Notes, OTPAuth
+const COLUMN_ALIASES = {
+  title:    ['name', 'title', 'account', 'accountname', 'displayname', '名前', 'タイトル'],
+  username: ['username', 'loginusername', 'user', 'userid', 'login', 'email', 'emailaddress',
+             'ユーザー名', 'メールアドレス'],
+  password: ['password', 'loginpassword', 'pass', 'パスワード'],
+  url:      ['url', 'loginuri', 'uri', 'website', 'site', 'weburl', 'urls', 'サイト'],
+  notes:    ['notes', 'note', 'comment', 'comments', 'メモ', '備考'],
+  totp:     ['logintotp', 'otpauth', 'totp', 'otp', 'twofactor', 'verificationcode',
+             'onetimepassword'],
+  tags:     ['folder', 'group', 'grouping', 'tags', 'tag', 'category', 'collection', 'type',
+             'フォルダ', 'タグ'],
+  favorite: ['favorite', 'favourite', 'starred', 'star'],
+};
+
+const normalize = value => value.trim().toLowerCase().replace(/[\s_\-.]/g, '');
+
+/// 見出し行から、どの列が何かを当てる。当てられなかった役割は入らない。
+function mapColumns(header) {
+  const seen = header.map(normalize);
+  const mapping = {};
+  for (const [role, names] of Object.entries(COLUMN_ALIASES)) {
+    const index = seen.findIndex(name => names.includes(name));
+    if (index >= 0) mapping[role] = index;
+  }
+  return mapping;
+}
+
+/// 表を記録の配列に直す。項目への組み立ては呼び出し側でやる。
+///
+/// 見出し行が無い（＝どの列も当てられない）場合は null を返す。
+/// 当てずっぽうに 1 列目をタイトル扱いすると、見出しがそのまま
+/// 1 件目の項目になって紛れ込む。
+///
+/// 見出しは当てられたが中身が 0 件、という場合は null ではなく空の records を返す。
+/// 「これは CSV ではない」と「中身が空だった」は、利用者に見せる言葉が違う。
+function toRecords(rows) {
+  if (!rows.length) return null;
+  const mapping = mapColumns(rows[0]);
+  // パスワードか題名のどちらも当てられないなら、CSV ではあっても別物
+  if (mapping.title === undefined && mapping.password === undefined) return null;
+
+  const pick = (row, role) => (mapping[role] === undefined ? '' : (row[mapping[role]] ?? '').trim());
+
+  const records = [];
+  for (const row of rows.slice(1)) {
+    const record = {
+      title: pick(row, 'title'),
+      username: pick(row, 'username'),
+      password: pick(row, 'password'),
+      url: pick(row, 'url'),
+      notes: pick(row, 'notes'),
+      totp: pick(row, 'totp'),
+      favorite: /^(1|true|yes|はい)$/i.test(pick(row, 'favorite')),
+      tags: splitTags(pick(row, 'tags')),
+    };
+    // 題名が無ければ URL から作る。空の題名の項目は探せない。
+    if (!record.title) record.title = hostOf(record.url) || record.username || '名称未設定';
+    // 何も中身が無い行は入れない
+    if (!record.password && !record.username && !record.notes && !record.url) continue;
+    records.push(record);
+  }
+  return { mapping, records };
+}
+
+function splitTags(value) {
+  if (!value) return [];
+  return [...new Set(value.split(/[,;/|]/).map(tag => tag.trim()).filter(Boolean))].slice(0, 8);
+}
+
+function hostOf(url) {
+  if (!url) return '';
+  try {
+    return new URL(url.includes('://') ? url : `https://${url}`).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/// 既にある項目と同じものを見分ける鍵。
+/// 題名とユーザー名が揃っていれば同じものとみなす。
+/// これが無いと、2 回取り込んだだけで全部が倍になる。
+function identity(title, username) {
+  return `${(title ?? '').trim().toLowerCase()} ${(username ?? '').trim().toLowerCase()}`;
+}
+
 // ===== 名前空間（元は import * as ...）=====
 const V = { HEADER_BYTES, SCHEMA_VERSION, DEFAULT_ITERATIONS, VaultError, makeHeader, decodeHeader, deriveKey, isoNoMillis, seal, open, normalizePayload, FIELD_KINDS, CATEGORIES, makeItem, isConcealed, displayTitle, primaryPassword, primaryUsername, primaryURL, groupedCardNumber, subtitle, matches };
 const X = { base32Decode, base32Encode, parseOTP, otpCode, otpCodeForCounter, otpSecondsRemaining, formatOTP, GENERATOR_SETS, generatePassword, generatorEntropyBits, estimateBits, STRENGTH_LEVELS, strengthLevel };
 const A = { FINDING_KINDS, AGE_THRESHOLD_MS, WEAK_THRESHOLD_BITS, lastPasswordChange, audit, TOMBSTONE_LIFETIME_MS, merge, summaryText };
+const C = { parseCSV, COLUMN_ALIASES, mapColumns, toRecords, identity };
 
 // ===== icons.js =====
 // アイコン。SF Symbols に寄せた線画で、太さと角の丸めを揃えてある。
@@ -1437,6 +1633,14 @@ const settings = {
   },
   set autoLockMinutes(value) {
     localStorage.setItem('passvault.autoLockMinutes', String(value));
+  },
+  /// 別のタブや別のアプリへ移った時点で施錠する。
+  /// 席を立つときに閉じ忘れる、が一番ありがちな漏れ方なので既定で有効。
+  get lockWhenAway() {
+    return localStorage.getItem('passvault.lockWhenAway') !== 'off';
+  },
+  set lockWhenAway(value) {
+    localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
   },
 };
 
@@ -2457,10 +2661,14 @@ setInterval(async () => {
 // 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
 setInterval(() => { pollRemoteChange(); }, 15_000);
 
-// 画面に戻ってきたときは、待たずに一度見る。
-// 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) pollRemoteChange();
+  // 画面に戻ってきたときは、待たずに一度見る。
+  // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
+  if (!document.hidden) { pollRemoteChange(); return; }
+
+  // 離れたら施錠する。ダイアログを開いている最中は、
+  // 取り込みの file 選択などで一時的に隠れることがあるので触らない。
+  if (settings.lockWhenAway && state.key && state.holds === 0) lockForIdle();
 });
 
 // ============================================================
@@ -2510,11 +2718,17 @@ document.addEventListener('keydown', event => {
     return;
   }
 
-  // 選んでいる項目のパスワードを、開かずに写す
+  // 選んでいる項目を、開かずに写す。⌘C がパスワード、⌘⇧C がユーザー名。
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && items[state.cursor]) {
     if (!window.getSelection()?.toString()) {
-      const password = V.primaryPassword(items[state.cursor]);
-      if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+      const item = items[state.cursor];
+      if (event.shiftKey) {
+        const username = V.primaryUsername(item);
+        if (username) { copyPlain(username, 'ユーザー名'); event.preventDefault(); }
+      } else {
+        const password = V.primaryPassword(item);
+        if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+      }
     }
     return;
   }
@@ -3057,6 +3271,9 @@ hooks.openSettings = function () {
   const dialog = makeDialog('設定', null);
   const body = dialog.querySelector('.dlg-body');
 
+  const awaySwitch = el('input', { type: 'checkbox', checked: settings.lockWhenAway,
+    onchange: event => { settings.lockWhenAway = event.target.checked; } });
+
   const lockSelect = el('select', { className: 'field', style: 'width:auto',
     onchange: event => { settings.autoLockMinutes = Number(event.target.value); } });
   for (const minutes of [0, 1, 5, 15, 30, 60]) {
@@ -3071,7 +3288,16 @@ hooks.openSettings = function () {
       el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),
       el('button', { className: 'g-row', style: 'color:var(--accent)',
         textContent: 'マスターパスワードを変更…', onclick: () => { dialog.close(); openPasswordChange(); } }),
+      el('div', { className: 'g-row between' }, [
+        el('span', { textContent: '画面を離れたら施錠' }),
+        awaySwitch,
+      ]),
+      el('button', { className: 'g-row', style: 'color:var(--accent)',
+        textContent: '緊急用シートを作る…', onclick: () => { dialog.close(); openEmergencyKit(); } }),
     ]),
+    el('div', { className: 'g-foot', textContent:
+      'マスターパスワードを忘れると中身は永久に取り出せません。復旧の窓口はありません。'
+      + '緊急用シートは、その備えとして紙に残すためのものです。' }),
   );
 
   const onFile = Boolean(state.fileHandle);
@@ -3097,6 +3323,8 @@ hooks.openSettings = function () {
       textContent: '保管庫を書き出す（バックアップ）', onclick: () => downloadVault() }),
     el('button', { className: 'g-row', style: 'color:var(--accent)',
       textContent: '別の保管庫を取り込む…', onclick: () => { dialog.close(); importFromFile(); } }),
+    el('button', { className: 'g-row', style: 'color:var(--accent)',
+      textContent: '他のアプリから取り込む（CSV）…', onclick: () => { dialog.close(); importFromCSV(); } }),
   );
 
   body.append(
@@ -3298,25 +3526,212 @@ function confirmMerge(remotePayload, sourceLabel) {
   });
 }
 
-/// 相手のファイルを選んで取り込む
-async function importFromFile() {
-  let file;
+/// file を 1 つ選ばせる。取り消されたら null。
+///
+/// 選んでいる間は自動施錠を止める。環境によっては file 選択の窓が出た時点で
+/// こちらが「隠れた」扱いになり、離席施錠が誤爆して、
+/// 選び終えたときには施錠済み、ということが起こりうる。
+async function pickFile(accept, description) {
+  state.holds += 1;
   try {
     if (typeof window.showOpenFilePicker === 'function') {
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'PassVault の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
+        types: [{ description, accept: { 'application/octet-stream': accept.split(',') } }],
       });
-      file = await handle.getFile();
-    } else {
-      file = await new Promise((resolve, reject) => {
-        const input = el('input', { type: 'file', accept: '.pvlt,application/octet-stream' });
-        input.onchange = () => input.files[0] ? resolve(input.files[0]) : reject();
-        input.click();
-      });
+      return await handle.getFile();
     }
-  } catch { return; }
+    return await new Promise((resolve, reject) => {
+      const input = el('input', { type: 'file', accept });
+      input.onchange = () => (input.files[0] ? resolve(input.files[0]) : reject());
+      input.click();
+    });
+  } catch {
+    return null;
+  } finally {
+    state.holds = Math.max(0, state.holds - 1);
+    noteActivity();
+  }
+}
 
+/// 相手のファイルを選んで取り込む
+async function importFromFile() {
+  const file = await pickFile('.pvlt', 'PassVault の保管庫');
+  if (!file) return;
   await importBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+}
+
+/// 他のアプリが書き出した CSV を取り込む。
+///
+/// Chrome / Safari / Bitwarden / 1Password / KeePassXC の書き出しを確認済み。
+/// 列は見出しの名前で当てる。位置で決め打つと、書き出し元が変わった途端に
+/// パスワードとユーザー名が入れ替わったまま気づけない。
+async function importFromCSV() {
+  const file = await pickFile('.csv,.txt', 'CSV');
+  if (!file) return;
+
+  let parsed;
+  try {
+    parsed = C.toRecords(C.parseCSV(await file.text()));
+  } catch (caught) {
+    toast(`読めませんでした: ${caught.message ?? caught}`);
+    return;
+  }
+  if (!parsed) {
+    toast('見出し行を読み取れませんでした。パスワードの列がある CSV を選んでください');
+    return;
+  }
+  if (!parsed.records.length) {
+    toast('中身のある行がありませんでした');
+    return;
+  }
+
+  // 既にあるものは飛ばす。飛ばさないと、2 回取り込んだだけで全部が倍になる。
+  const known = new Set(state.items.map(item =>
+    C.identity(V.displayTitle(item), V.primaryUsername(item) ?? '')));
+  const fresh = parsed.records.filter(record => !known.has(C.identity(record.title, record.username)));
+  const skipped = parsed.records.length - fresh.length;
+
+  if (!await confirmCSV(file.name, parsed, fresh, skipped)) {
+    toast('取り込みを中止しました');
+    return;
+  }
+  if (!fresh.length) return;
+
+  for (const record of fresh) {
+    const item = V.makeItem('login');
+    item.title = record.title;
+    item.fields[0].value = record.username;
+    item.fields[1].value = record.password;
+    item.fields[2].value = record.url;
+    item.notes = record.notes;
+    item.tags = record.tags;
+    item.isFavorite = record.favorite;
+    if (record.totp && X.parseOTP(record.totp)) item.oneTimePasswordSecret = record.totp;
+    state.items.push(item);
+  }
+  if (!await save()) return;
+  toast(`${fresh.length} 件を取り込みました`);
+  render();
+}
+
+/// 取り込む前に中身を見せる。パスワードは出さない。
+function confirmCSV(sourceName, parsed, fresh, skipped) {
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog('CSV の取り込み', () => { answered = true; resolve(true); return true; },
+                              fresh.length ? '取り込む' : '閉じる');
+    dialog.onDismiss = () => { if (!answered) resolve(false); };
+
+    const found = Object.keys(parsed.mapping);
+    const body = dialog.querySelector('.dlg-body');
+    body.append(
+      el('div', { className: 'g-foot', style: 'margin-top:0', textContent: `取り込み元: ${sourceName}` }),
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '読めた行' }),
+          el('span', { style: 'color:var(--text-2)', textContent: `${parsed.records.length} 件` }),
+        ]),
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '新しく入るもの' }),
+          el('span', { style: 'color:var(--accent)', textContent: `${fresh.length} 件` }),
+        ]),
+        skipped ? el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '既にあるので飛ばすもの' }),
+          el('span', { style: 'color:var(--text-2)', textContent: `${skipped} 件` }),
+        ]) : null,
+        el('div', { className: 'g-row between' }, [
+          el('span', { textContent: '当てられた列' }),
+          el('span', { style: 'color:var(--text-2)', textContent: found.join('、') }),
+        ]),
+      ]),
+    );
+
+    if (parsed.mapping.password === undefined) {
+      body.append(el('div', { className: 'banner', style: 'margin-bottom:14px' }, [
+        icon('warning'),
+        el('div', {}, [
+          el('div', { className: 'bt', textContent: 'パスワードの列が見つかりません' }),
+          el('div', { className: 'bd', textContent: 'このまま取り込むと、パスワードは空のまま入ります。' }),
+        ]),
+      ]));
+    }
+
+    if (fresh.length) {
+      body.append(
+        el('div', { className: 'g-title', textContent: `入るもの（${fresh.length}）` }),
+        el('div', { className: 'group' }, fresh.slice(0, 12).map(record =>
+          el('div', { className: 'g-row' }, [
+            icon('key', 14),
+            el('span', { style: 'margin-left:7px', textContent: record.title }),
+            record.username
+              ? el('span', { style: 'margin-left:8px;color:var(--text-3);font-size:12px',
+                             textContent: record.username })
+              : null,
+          ]))),
+      );
+      if (fresh.length > 12) {
+        body.append(el('div', { className: 'g-foot', textContent: `ほか ${fresh.length - 12} 件` }));
+      }
+      body.append(el('div', { className: 'g-foot', textContent:
+        'すべて「ログイン」として入ります。取り込んだ後で種別を変えられます。'
+        + ' 元の CSV はパスワードが平文なので、取り込んだら消してください。' }));
+    } else {
+      body.append(el('div', { className: 'g-foot', textContent:
+        'すべて既にある項目でした。取り込むものはありません。' }));
+    }
+
+    dialog.showModal();
+  });
+}
+
+/// 緊急用のシート。忘れたとき・自分がいなくなったときのための紙。
+///
+/// このアプリは復旧の窓口を持たない。マスターパスワードを失えば中身は永久に出ない。
+/// せめて「これが何で、どこにあって、どう開けるのか」だけは紙に残せるようにする。
+function openEmergencyKit() {
+  const dialog = makeDialog('緊急用シート', null);
+  const body = dialog.querySelector('.dlg-body');
+  const where = state.fileHandle ? state.fileName : 'この端末のブラウザの中（ファイルではありません）';
+  const opened = window.location.href.split('?')[0];
+
+  body.append(el('div', { className: 'kit' }, [
+    el('h2', { textContent: 'PassVault 緊急用シート' }),
+    el('p', { textContent:
+      'この紙は、パスワードの保管庫を開くための手引きです。'
+      + '保管庫そのものは暗号化されていて、下に書く「マスターパスワード」なしには誰にも開けません。' }),
+
+    el('h3', { textContent: '1. 保管庫の場所' }),
+    el('div', { className: 'kit-line', textContent: where }),
+
+    el('h3', { textContent: '2. 開き方' }),
+    el('div', { className: 'kit-line', textContent: opened }),
+    el('p', { textContent:
+      'この住所をブラウザで開き、上の保管庫ファイルを選んで、下のマスターパスワードを入れます。'
+      + '保管庫ファイル（.pvlt）は、ダブルクリックしても開きません。' }),
+
+    el('h3', { textContent: '3. マスターパスワード' }),
+    el('p', { textContent: 'ここに手で書いてください。アプリは決して書き込みません。' }),
+    el('div', { className: 'kit-blank' }),
+    el('p', { className: 'kit-warn', textContent:
+      'これを失うと、中身は永久に取り出せません。復旧の窓口はありません。'
+      + 'この紙は、金庫や重要書類と同じ場所に保管してください。' }),
+
+    el('h3', { textContent: '4. 技術的な内容（詳しい人向け）' }),
+    el('div', { className: 'kit-line', textContent:
+      `形式 PVLT / AES-256-GCM / PBKDF2-HMAC-SHA512 ${state.header.iterations.toLocaleString()} 回` }),
+    el('p', { textContent:
+      'ファイルの先頭 44 バイトが平文の見出しで、続きが暗号文です。'
+      + '仕様は PassVault の README にあります。' }),
+
+    el('div', { className: 'kit-foot', textContent: `作成: ${fmtDateTime(V.isoNoMillis())}` }),
+  ]));
+
+  body.append(el('div', { className: 'g-foot', textContent:
+    '印刷したら、この画面は閉じてください。画面に出したままにしないこと。' }));
+
+  const head = dialog.querySelector('.dlg-head');
+  head.append(el('button', { textContent: '印刷', onclick: () => window.print() }));
+  dialog.showModal();
 }
 
 async function importBytes(bytes, sourceLabel) {

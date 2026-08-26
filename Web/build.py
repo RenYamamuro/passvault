@@ -26,7 +26,7 @@ HERE = Path(__file__).parent
 SITE = HERE / "site"
 ICON_SOURCE = HERE / "icon-master.png"   # make-icon.py が作る
 # 依存の順に並べる。名前空間（V / X / A）はこの 3 つから作る。
-NAMESPACED = [("core.js", "V"), ("crypto-extras.js", "X"), ("audit.js", "A")]
+NAMESPACED = [("core.js", "V"), ("crypto-extras.js", "X"), ("audit.js", "A"), ("csv.js", "C")]
 PLAIN = ["icons.js", "app.js", "detail.js"]
 
 # 見た目のテーマ。style.css（骨組み）の上に重ねる。
