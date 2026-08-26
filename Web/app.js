@@ -718,7 +718,7 @@ function createCard() {
   };
 
   return el('div', { className: 'gate-card' }, [
-    el('div', { className: 'gate-mark' }, [icon('shieldCheck', 40)]),
+    el('div', { className: 'gate-mark' }, [icon('vault', 44)]),
     el('h1', { textContent: '保管庫をつくる' }),
     el('p', { className: 'lead', textContent: 'マスターパスワードだけがこの保管庫を開ける鍵です。どこにも保存されないので、忘れると中身は取り出せません。' }),
     first, second,
@@ -872,7 +872,7 @@ function renderBar() {
 
   bar.replaceChildren(
     el('div', { className: 'brand', title: state.dirty ? '保存できていない変更があります' : '' }, [
-      icon('shieldCheck', 17),
+      icon('vault', 18),
       el('span', { textContent: 'PassVault' }),
       state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
     ]),

@@ -562,7 +562,7 @@ select.field { padding: 7px 11px; }
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "8af396200d0d";</script>
+<script>window.PASSVAULT_BUILD = "4dd8d5096afe";</script>
 <script>
 
 // ===== core.js =====
@@ -1312,6 +1312,9 @@ const STROKED = {
   terminal: '<rect x="2.5" y="4" width="19" height="16" rx="2.5"/><path d="M7 9.5 10 12l-3 2.5M12.5 15h5"/>',
   wifi: '<path d="M2.5 8.6a15 15 0 0 1 19 0M5.8 12.2a10 10 0 0 1 12.4 0M9.2 15.7a5 5 0 0 1 5.6 0"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>',
   seal: '<path d="M12 2.8 14.3 5l3-.4 1 2.9 2.6 1.6-1.1 2.9 1.1 2.9-2.6 1.6-1 2.9-3-.4L12 21.2 9.7 19l-3 .4-1-2.9L3.1 15l1.1-2.9L3.1 9.2l2.6-1.6 1-2.9 3 .4z"/><path d="m9 12 2.2 2.2L15.3 10"/>',
+
+  // アプリの印。アイコン（make-icon.py の dial）と同じ形にしてある。
+  vault: '<circle cx="12" cy="12" r="7.6"/><path d="M10.4 10.4 7.1 7.1M13.6 10.4 16.9 7.1M10.4 13.6 7.1 16.9M13.6 13.6 16.9 16.9"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
 
   // 画面の道具
   grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',
@@ -2109,7 +2112,7 @@ function createCard() {
   };
 
   return el('div', { className: 'gate-card' }, [
-    el('div', { className: 'gate-mark' }, [icon('shieldCheck', 40)]),
+    el('div', { className: 'gate-mark' }, [icon('vault', 44)]),
     el('h1', { textContent: '保管庫をつくる' }),
     el('p', { className: 'lead', textContent: 'マスターパスワードだけがこの保管庫を開ける鍵です。どこにも保存されないので、忘れると中身は取り出せません。' }),
     first, second,
@@ -2263,7 +2266,7 @@ function renderBar() {
 
   bar.replaceChildren(
     el('div', { className: 'brand', title: state.dirty ? '保存できていない変更があります' : '' }, [
-      icon('shieldCheck', 17),
+      icon('vault', 18),
       el('span', { textContent: 'PassVault' }),
       state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
     ]),

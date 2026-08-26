@@ -24,7 +24,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 # ホーム画面に追加して使うための出力先（GitHub Pages などに置く）
 SITE = HERE / "site"
-ICON_SOURCE = HERE.parent / "PassVault/Resources/Assets.xcassets/AppIcon.appiconset/icon-ios-1024.png"
+ICON_SOURCE = HERE / "icon-master.png"   # make-icon.py が作る
 # 依存の順に並べる。名前空間（V / X / A）はこの 3 つから作る。
 NAMESPACED = [("core.js", "V"), ("crypto-extras.js", "X"), ("audit.js", "A")]
 PLAIN = ["icons.js", "app.js", "detail.js"]
