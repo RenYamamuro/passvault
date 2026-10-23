@@ -1146,6 +1146,41 @@ export function openItem(id) {
   render();
 }
 
+/// 色相の候補。等間隔（36°）の 10 色。
+/// 色相を 0〜359 の連続値で選ぶと、近い色（紫と赤紫など）が別の色に見えず、
+/// 「項目ごとの顔」になっていなかった。離れた色から選べば、違う色は違って見える。
+export const TILE_HUES = [12, 48, 84, 120, 156, 192, 228, 264, 300, 336];
+
+/// 色相を題名から決める（同じ題名なら、いつ開いても同じ色になる）。
+/// FNV-1a。偏りが少なく、短い文字列でもばらける。
+export function hueFor(text) {
+  let hash = 0x811c9dc5;
+  for (const char of text.trim().toLowerCase()) {
+    hash ^= char.codePointAt(0);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return TILE_HUES[hash % TILE_HUES.length];
+}
+
+/// 項目のタイル。ログインは頭文字、それ以外は種別のアイコン。
+///
+/// サイトのアイコンは外へ取りに行く通信が要り、どのサイトの口座を持っているかが漏れるので採らない。
+/// 通信なしで項目ごとの顔を作れるのが頭文字。同じ青いタイルが並ぶと、一覧で見分ける手がかりにならない。
+/// 種別（ログイン以外）は形で見分けるほうが速いので、アイコンのまま。
+export function avatarFor(item, iconSize = 18) {
+  const look = CATEGORY_LOOK[item.category];
+  if (item.category !== 'login') {
+    return el('span', { className: 'avatar', 'aria-hidden': 'true', style: `--hue:${look.hue}` },
+              [icon(look.icon, iconSize)]);
+  }
+  const title = V.displayTitle(item);
+  const [first] = Array.from(title.trim());
+  return el('span', {
+    className: 'avatar mono', 'aria-hidden': 'true', style: `--hue:${hueFor(title)}`,
+    textContent: (first ?? '?').toUpperCase(),
+  });
+}
+
 function itemRow(item, index) {
   const look = CATEGORY_LOOK[item.category];
   const marks = el('span', { className: 'marks' });
@@ -1171,7 +1206,7 @@ function itemRow(item, index) {
     el('button', {
       className: 'item-open', onclick: () => openItem(item.id),
     }, [
-      el('span', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 17)]),
+      avatarFor(item, 18),
       el('span', { className: 'lines' }, [
         el('span', { className: 't', textContent: V.displayTitle(item) }),
         V.subtitle(item) ? el('span', { className: 's', textContent: V.subtitle(item) }) : null,

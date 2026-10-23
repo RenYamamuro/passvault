@@ -5,7 +5,7 @@ import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy,
+  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -61,7 +61,7 @@ hooks.renderDetail = function renderDetail() {
   if (item.isFavorite) favButton.style.color = '#e8b021';
 
   parts.push(el('div', { className: 'detail-head' }, [
-    el('div', { className: 'avatar', style: `--hue:${look.hue}` }, [icon(look.icon, 26)]),
+    avatarFor(item, 28),
     el('div', { className: 'grow' }, [
       el('h1', { textContent: V.displayTitle(item) }),
       el('button', {

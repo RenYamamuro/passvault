@@ -52,8 +52,12 @@
 
   --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 11%, transparent);
 
-  --tint-l: 47%;
-  --tint-s: 56%;
+  /* タイル（頭文字・種別アイコン）。色相だけを項目ごとに変え、明るさと彩度は固定する。
+     塗りつぶして白抜きにすると、黄〜緑の色相で白との差が足りなくなる
+     （以前は暗い配色で約 2.9:1）。淡い地に同じ色相の濃い文字にして、全色相で 4.5:1 以上を実測で確かめた。
+     緑〜黄緑は同じ明度でも人の目に明るく映るので、文字を濃くしてある（L 32% では 4.1:1 しか出なかった）。 */
+  --tile-bg-s: 80%;  --tile-bg-l: 92%;
+  --tile-fg-s: 62%;  --tile-fg-l: 26%;
 
   --ease: cubic-bezier(.32, .72, 0, 1);
 
@@ -95,8 +99,8 @@
 
     --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 20%, transparent);
 
-    --tint-l: 62%;
-    --tint-s: 52%;
+    --tile-bg-s: 40%;  --tile-bg-l: 24%;
+    --tile-fg-s: 85%;  --tile-fg-l: 80%;
   }
 }
 
@@ -316,11 +320,14 @@ textarea.field { resize: vertical; line-height: 1.6; }
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border: none; background: none; text-align: left; color: var(--text);
 }
-.item-row .avatar {
-  width: 34px; height: 34px; border-radius: 28%;
-  display: grid; place-items: center; flex: none; color: #fff;
-  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
+/* タイルは全部ここ。大きさだけを場所ごとに変える。 */
+.avatar {
+  display: grid; place-items: center; flex: none; border-radius: 28%;
+  background: hsl(var(--hue) var(--tile-bg-s) var(--tile-bg-l));
+  color: hsl(var(--hue) var(--tile-fg-s) var(--tile-fg-l));
+  font-weight: 600; line-height: 1; user-select: none;
 }
+.item-row .avatar { width: 36px; height: 36px; font-size: var(--fs-4); }
 .item-row .lines { flex: 1; min-width: 0; }
 .item-row .t {
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -379,17 +386,8 @@ textarea.field { resize: vertical; line-height: 1.6; }
 /* ---------- 詳細 ---------- */
 
 .detail-head { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
-.avatar.small {
-  width: 26px; height: 26px; border-radius: 28%;
-  display: grid; place-items: center; flex: none; color: #fff;
-  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
-}
-.detail-head .avatar {
-  width: 58px; height: 58px; border-radius: 28%;
-  display: grid; place-items: center; flex: none; color: #fff;
-  background: hsl(var(--hue) var(--tint-s) var(--tint-l));
-  box-shadow: 0 3px 10px color-mix(in srgb, hsl(var(--hue) var(--tint-s) var(--tint-l)) 30%, transparent);
-}
+.avatar.small { width: 26px; height: 26px; font-size: var(--fs-3); }
+.detail-head .avatar { width: 60px; height: 60px; font-size: var(--fs-6); }
 .detail-head h1 { font-size: var(--fs-6); font-weight: 600; line-height: 1.2; margin: 0; }
 /* 押すと同じ種別だけを見られる。札から種別を外したぶんの入口。 */
 .detail-head .cat {

@@ -905,6 +905,39 @@ try {
 }
 
 // ============================================================
+section('項目のタイル（頭文字）');
+// ============================================================
+// サイトのアイコンは外へ取りに行く通信が要り、どのサイトの口座を持つかが漏れるので採らない。
+// 通信なしで項目ごとの顔を作るために、題名から頭文字と色相を決める。
+{
+  check('同じ題名なら同じ色相になる', App.hueFor('GitHub') === App.hueFor('GitHub'));
+  check('大文字小文字と前後の空白は色相に影響しない',
+        App.hueFor('GitHub') === App.hueFor('  github '));
+  const names = ['GitHub', 'Google', 'Amazon', 'Notion', 'Slack', 'Dropbox', 'Zoom', '楽天', '三井住友', 'Apple', 'Netflix', 'Figma'];
+  const hues = names.map(App.hueFor);
+  check('色相は用意した 10 色のどれか', hues.every(h => App.TILE_HUES.includes(h)));
+  check('用意した色は、どれも隣と 30° 以上離れている',
+        [...App.TILE_HUES].sort((a, b) => a - b)
+          .every((h, i, all) => i === 0 || h - all[i - 1] >= 30)
+        && (360 - Math.max(...App.TILE_HUES) + Math.min(...App.TILE_HUES)) >= 30);
+  check('12 件の題名で、色が 6 種類以上にばらける', new Set(hues).size >= 6);
+
+  const tileOf = item => App.avatarFor(item);
+  const github = makeLogin('github', 'x');
+  check('ログインは頭文字（大文字）のタイル',
+        tileOf(github).textContent === 'G' && tileOf(github).classList.contains('mono'));
+  check('日本語の題名は先頭の 1 文字', tileOf(makeLogin('楽天カード', 'x')).textContent === '楽');
+  check('絵文字は 1 文字として切る（文字が壊れない）', tileOf(makeLogin('🔐金庫', 'x')).textContent === '🔐');
+  check('空の題名でも空のタイルにならない', tileOf(makeLogin('', 'x')).textContent.length === 1);
+  check('色相が style に入る', /--hue:\s*\d+/.test(tileOf(github).getAttribute('style')));
+  check('飾りなので読み上げない（aria-hidden）', tileOf(github).getAttribute('aria-hidden') === 'true');
+
+  const card = V.makeItem('creditCard'); card.title = '三井住友カード';
+  check('ログイン以外は種別のアイコンのまま',
+        !!tileOf(card).querySelector('svg') && !tileOf(card).classList.contains('mono'));
+}
+
+// ============================================================
 section('デザインの尺度（style.css とテーマ）');
 // ============================================================
 // 「余白は 4 の倍数」と書いたのに、実際は奇数が 8 種類混ざり、文字サイズも
