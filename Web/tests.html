@@ -905,6 +905,54 @@ try {
 }
 
 // ============================================================
+section('デザインの尺度（style.css とテーマ）');
+// ============================================================
+// 「余白は 4 の倍数」と書いたのに、実際は奇数が 8 種類混ざり、文字サイズも
+// 半ピクセル刻みで 12 種あった。書いたことと実物が食い違っていたので、
+// 以後は機械で見張る。ここが落ちたら、尺度の外の値を足したということ。
+{
+  const files = ['style.css', 'theme-macos.css', 'theme-tool.css', 'theme-1password.css'];
+  const sources = {};
+  for (const name of files) sources[name] = await (await fetch(`./${name}`, { cache: 'no-store' })).text();
+
+  // コメントは見ない（説明に書いた数値を誤検出しないため）
+  const strip = text => text.replace(/\/\*[\s\S]*?\*\//g, '');
+  const lines = name => strip(sources[name]).split('\n');
+
+  const offenders = { fontSize: [], odd: [], radius: [] };
+  for (const name of files) {
+    lines(name).forEach((line, index) => {
+      const where = `${name}:${index + 1} ${line.trim().slice(0, 70)}`;
+      for (const m of line.matchAll(/font-size:\s*([^;}]+)/g)) {
+        if (!/^var\(--fs-[1-6]\)$/.test(m[1].trim())) offenders.fontSize.push(where);
+      }
+      // 短縮形の px。SVG の文字（輪の中の秒数）だけは例外にする
+      for (const m of line.matchAll(/(?:^|[;{\s])font:\s*[^;}]*?\d+(?:\.\d+)?px/g)) {
+        if (!line.includes('.otp .ring text')) offenders.fontSize.push(where);
+      }
+      for (const m of line.matchAll(/\b(?:padding|margin|gap|row-gap|column-gap)(?:-[a-z]+)?:\s*([^;}]+)/g)) {
+        if ([...m[1].matchAll(/(\d+)px/g)].some(n => Number(n[1]) % 2 === 1)) offenders.odd.push(where);
+      }
+      for (const m of line.matchAll(/border-radius:\s*([^;}]+)/g)) {
+        if (!/^(var\(--r-\w+\)(\s+var\(--r-\w+\))*(\s+0\s+0)?|999px|\d+%|0)$/.test(m[1].trim())) {
+          offenders.radius.push(where);
+        }
+      }
+    });
+  }
+  for (const [label, list] of [['文字サイズ', offenders.fontSize], ['奇数 px の余白', offenders.odd],
+                               ['トークン外の角丸', offenders.radius]]) {
+    check(`${label}は尺度の中だけ`, list.length === 0);
+    for (const where of list.slice(0, 5)) note(`  外れ: ${where}`);
+  }
+
+  const tokens = [...strip(sources['style.css']).matchAll(/--fs-([1-6]):\s*(\d+)px/g)]
+    .map(m => Number(m[2]));
+  check('文字の尺度は 6 段で、昇順に並ぶ',
+        tokens.length === 6 && tokens.every((value, i) => i === 0 || value > tokens[i - 1]));
+}
+
+// ============================================================
 section('CSV の取り込み');
 // ============================================================
 // ここは保管庫の中身に直接なる。引用符の中のカンマや改行を取りこぼすと、

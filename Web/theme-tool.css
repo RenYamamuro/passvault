@@ -52,7 +52,7 @@
   }
 }
 
-body { font-size: 13px; }
+body { font-size: var(--fs-3); }
 
 /* 半透明をやめて単色で締める */
 #bar, #toast, .dlg-head { -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -60,11 +60,12 @@ body { font-size: 13px; }
 
 /* 密度を上げる */
 .sheet { max-width: 660px; padding: 16px 18px 56px; }
-.item-open { padding: 9px 12px; gap: 11px; }
-.item-row .avatar { width: 28px; height: 28px; border-radius: 6px; }
-.item-row .s { font-size: 11.5px; }
-.row { padding: 9px 12px; }
-.chip { padding: 4px 10px; font-size: 12.5px; }
+.item-open { padding: 8px 12px; gap: 12px; min-height: 0; }
+.item-row .avatar { width: 28px; height: 28px; }
+.item-row .t { font-size: var(--fs-3); }
+.item-row .s { font-size: var(--fs-1); }
+.row { padding: 8px 12px; }
+.chip { padding: 4px 10px; font-size: var(--fs-2); }
 
 /* 種別は色で分けず、形だけで見分ける */
 .item-row .avatar, .detail-head .avatar, .avatar.small {
@@ -73,7 +74,7 @@ body { font-size: 13px; }
 }
 .item-row.cur .avatar { color: var(--accent); }
 .detail-head .avatar { width: 44px; height: 44px; }
-.detail-head h1 { font-size: 21px; }
+.detail-head h1 { font-size: var(--fs-5); }
 
 .card, .group, .notes, .list { box-shadow: none; border-color: var(--hairline-strong); }
 .push, .tag, .chip { box-shadow: none; }

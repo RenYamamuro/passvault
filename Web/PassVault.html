@@ -19,7 +19,9 @@
  *   ・一覧から直接コピーできる。9 割の用はそれで済む
  *
  * 組みの考え方:
- *   ・余白は 4 の倍数で刻む。目が拾える律動を作るため
+ *   ・余白は偶数 px。基本は 4 の倍数で、小さな部品の内側だけ 2 の倍数を許す。
+ *     奇数 px は使わない（以前は 1・3・5・7・9・11・13・15 が混ざっていた）
+ *   ・文字は --fs-1〜6 の 6 段だけ。角丸は --r-* か 28%（タイル）か 999px（丸薬）だけ
  *   ・選択は塗りつぶさない。地を薄く染めて文字を強める
  *   ・影はほとんど使わない。境界線と地の明度差で階層を作る
  *   ・色は状態を示すときだけ使う。装飾では使わない
@@ -65,6 +67,16 @@
   --tint-s: 56%;
 
   --ease: cubic-bezier(.32, .72, 0, 1);
+
+  /* 文字の尺度。6 段だけ。ここに無い大きさは使わない（tests.html が見張っている）。
+     以前は 11 / 11.5 / 12 / 12.5 / 13 / 13.5 / 14 / 14.5 … と半ピクセル刻みで 12 種あり、
+     尺度ではなく場当たりの積み重ねだった。 */
+  --fs-1: 11px;   /* 見出しの小ラベル・注記 */
+  --fs-2: 12px;   /* 補足・メタ情報 */
+  --fs-3: 13px;   /* 操作部品・二次的な本文 */
+  --fs-4: 15px;   /* 本文・一覧の題名 */
+  --fs-5: 18px;   /* 小見出し・案内の主文 */
+  --fs-6: 24px;   /* 画面の見出し */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -108,7 +120,7 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  font: 14px/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans',
+  font: var(--fs-4)/1.5 -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Hiragino Sans',
         'Noto Sans JP', system-ui, sans-serif;
   color: var(--text);
   background: var(--window);
@@ -158,12 +170,12 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
   padding: 40px 24px; background: var(--window);
 }
 .gate-card { width: 100%; max-width: 380px; text-align: center; }
-.gate-card h1 { font-size: 27px; font-weight: 600; line-height: 1.2; margin: 20px 0 8px; }
-.gate-card p.lead { color: var(--text-2); margin: 0 0 28px; font-size: 14px; line-height: 1.55; }
+.gate-card h1 { font-size: var(--fs-6); font-weight: 600; line-height: 1.2; margin: 20px 0 8px; }
+.gate-card p.lead { color: var(--text-2); margin: 0 0 28px; font-size: var(--fs-4); line-height: 1.55; }
 .gate-mark { color: var(--accent, var(--accent-fallback)); display: flex; justify-content: center; }
 
 .field {
-  width: 100%; padding: 10px 13px;
+  width: 100%; padding: 10px 12px;
   border: 0.5px solid var(--hairline-strong); border-radius: var(--r-small);
   background: var(--content); margin-bottom: 8px;
 }
@@ -173,7 +185,7 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
 textarea.field { resize: vertical; line-height: 1.6; }
 
 .push {
-  width: 100%; padding: 9px 18px; border-radius: var(--r-small);
+  width: 100%; padding: 8px 18px; border-radius: var(--r-small);
   border: 0.5px solid var(--hairline-strong); background: var(--raised);
   box-shadow: var(--shadow-raised); font-weight: 450;
 }
@@ -189,12 +201,12 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .push.primary:disabled { background: var(--hairline-strong); color: var(--text-3); box-shadow: none; }
 .push + .push { margin-top: 8px; }
 
-.hints { text-align: left; margin: 14px 2px 18px; display: grid; gap: 5px; }
-.hint { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 7px; }
+.hints { text-align: left; margin: 14px 2px 18px; display: grid; gap: 4px; }
+.hint { color: var(--text-2); font-size: var(--fs-3); display: flex; align-items: center; gap: 8px; }
 .hint .icon { color: var(--text-3); }
 .hint.ok, .hint.ok .icon { color: var(--ok); }
-.tip { font-size: 12px; color: var(--text-2); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
-.error { color: var(--danger); font-size: 13px; text-align: left; margin: 8px 2px; }
+.tip { font-size: var(--fs-2); color: var(--text-2); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
+.error { color: var(--danger); font-size: var(--fs-3); text-align: left; margin: 8px 2px; }
 
 /* ---------- 全体の骨格 ---------- */
 
@@ -212,23 +224,23 @@ textarea.field { resize: vertical; line-height: 1.6; }
   z-index: 5;
 }
 .brand {
-  display: flex; align-items: center; gap: 7px; flex: none;
-  font-size: 14.5px; font-weight: 600; color: var(--text);
+  display: flex; align-items: center; gap: 8px; flex: none;
+  font-size: var(--fs-4); font-weight: 600; color: var(--text);
 }
 .brand .icon { color: var(--accent, var(--accent-fallback)); }
 .brand .unsaved {
-  font-size: 11px; font-weight: 600; color: var(--warn);
+  font-size: var(--fs-1); font-weight: 600; color: var(--warn);
   background: color-mix(in srgb, var(--warn) 15%, transparent);
-  padding: 1px 7px; border-radius: 999px; margin-left: 2px;
+  padding: 2px 8px; border-radius: 999px; margin-left: 2px;
 }
 
 .searchwrap { flex: 1; display: flex; justify-content: center; }
 #search {
   width: 100%; max-width: 520px;
-  padding: 9px 14px 9px 36px; border-radius: 10px;
+  padding: 8px 14px 8px 36px; border-radius: var(--r-medium);
   /* 暗い配色では地が帯とほぼ同じ明るさで、枠が無いと入力欄に見えない */
   border: 0.5px solid var(--hairline-strong); background: var(--sunken);
-  font-size: 14px;
+  font-size: var(--fs-4);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='10.7' cy='10.7' r='6.7'/%3E%3Cpath d='m15.6 15.6 4.4 4.4'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: 12px center; background-size: 15px;
   -webkit-appearance: none;
@@ -245,17 +257,17 @@ textarea.field { resize: vertical; line-height: 1.6; }
   display: inline-flex; align-items: center; gap: 4px; flex: none;
   background: none; border: none; padding: 6px 10px 6px 6px;
   border-radius: var(--r-small); color: var(--accent, var(--accent-fallback));
-  font-size: 13.5px; font-weight: 500;
+  font-size: var(--fs-3); font-weight: 500;
 }
 .backbtn:hover { background: var(--hover); }
 .bar-title {
-  flex: 1; text-align: center; font-size: 13.5px; font-weight: 550;
+  flex: 1; text-align: center; font-size: var(--fs-3); font-weight: 550;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   padding: 0 8px;
 }
 
 .iconbtn {
-  background: none; border: none; padding: 7px; border-radius: var(--r-small);
+  background: none; border: none; padding: 8px; border-radius: var(--r-small);
   color: var(--text-2); display: inline-flex; align-items: center; justify-content: center;
 }
 .iconbtn:hover { background: var(--hover); color: var(--text); }
@@ -272,12 +284,12 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; border-radius: 999px;
+  padding: 4px 12px; border-radius: 999px;
   border: 0.5px solid var(--hairline-strong); background: transparent;
-  color: var(--text-2); font-size: 13px;
+  color: var(--text-2); font-size: var(--fs-3);
 }
 .chip:hover { background: var(--hover); color: var(--text); }
-.chip .n { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.chip .n { font-size: var(--fs-2); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chip .n.warn { color: var(--warn); font-weight: 600; }
 .chip.sel {
   background: var(--selected); border-color: transparent;
@@ -287,8 +299,8 @@ textarea.field { resize: vertical; line-height: 1.6; }
 
 .listtools { display: flex; justify-content: flex-end; margin: -8px 0 10px; }
 .linkbtn {
-  background: none; border: none; color: var(--text-2); font-size: 12.5px;
-  display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px;
+  background: none; border: none; color: var(--text-2); font-size: var(--fs-3);
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px;
   border-radius: var(--r-small);
 }
 .linkbtn:hover { background: var(--hover); color: var(--text); }
@@ -312,11 +324,11 @@ textarea.field { resize: vertical; line-height: 1.6; }
 }
 
 .item-open {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 13px;
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border: none; background: none; text-align: left; color: var(--text);
 }
 .item-row .avatar {
-  width: 34px; height: 34px; border-radius: 9px;
+  width: 34px; height: 34px; border-radius: 28%;
   display: grid; place-items: center; flex: none; color: #fff;
   background: hsl(var(--hue) var(--tint-s) var(--tint-l));
 }
@@ -327,7 +339,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
 }
 .item-row.cur .t { font-weight: 550; }
 .item-row .s {
-  display: block; font-size: 12px; color: var(--text-2); margin-top: 1px;
+  display: block; font-size: var(--fs-2); color: var(--text-2); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .item-row .marks { display: flex; gap: 6px; color: var(--text-3); flex: none; }
@@ -348,7 +360,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
 
 .listfoot {
   display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; color: var(--text-2);
+  font-size: var(--fs-2); color: var(--text-2);
   margin-top: 10px; font-variant-numeric: tabular-nums;
 }
 
@@ -357,42 +369,42 @@ textarea.field { resize: vertical; line-height: 1.6; }
   display: grid; gap: 8px; justify-items: center;
 }
 .empty .big { color: var(--text-3); opacity: .4; }
-.empty .lead { font-size: 14px; color: var(--text-2); }
+.empty .lead { font-size: var(--fs-4); color: var(--text-2); }
 
 /* 初めて開いたとき。移行の入口なので、文字だけにせず押せるものを置く */
 .empty.first { padding-top: 56px; gap: 10px; }
 .empty.first .big { color: var(--accent, var(--accent-fallback)); opacity: 1; }
-.empty.first .lead { font-size: 18px; font-weight: 600; color: var(--text); }
-.empty.first .sub { max-width: 340px; font-size: 13.5px; line-height: 1.6; }
-.empty.first .sub.small { font-size: 12px; margin-top: 8px; }
+.empty.first .lead { font-size: var(--fs-5); font-weight: 600; color: var(--text); }
+.empty.first .sub { max-width: 340px; font-size: var(--fs-3); line-height: 1.6; }
+.empty.first .sub.small { font-size: var(--fs-2); margin-top: 8px; }
 .empty .cta { display: grid; gap: 8px; width: min(100%, 300px); margin-top: 8px; }
-.empty .cta .push { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.empty .cta .push { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .empty .cta .push + .push { margin-top: 0; }
 
 /* パスワード欄の右端に置く「表示」 */
 .revealable { position: relative; }
 .revealable .field { padding-right: 46px; }
 .revealable .reveal { position: absolute; right: 5px; top: 5px; }
-.g-sub { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-top: 2px; max-width: 360px; }
+.g-sub { font-size: var(--fs-2); color: var(--text-2); line-height: 1.5; margin-top: 2px; max-width: 360px; }
 
 /* ---------- 詳細 ---------- */
 
 .detail-head { display: flex; align-items: center; gap: 16px; margin-bottom: 26px; }
 .avatar.small {
-  width: 26px; height: 26px; border-radius: 7px;
+  width: 26px; height: 26px; border-radius: 28%;
   display: grid; place-items: center; flex: none; color: #fff;
   background: hsl(var(--hue) var(--tint-s) var(--tint-l));
 }
 .detail-head .avatar {
-  width: 58px; height: 58px; border-radius: 15px;
+  width: 58px; height: 58px; border-radius: 28%;
   display: grid; place-items: center; flex: none; color: #fff;
   background: hsl(var(--hue) var(--tint-s) var(--tint-l));
   box-shadow: 0 3px 10px color-mix(in srgb, hsl(var(--hue) var(--tint-s) var(--tint-l)) 30%, transparent);
 }
-.detail-head h1 { font-size: 25px; font-weight: 600; line-height: 1.2; margin: 0; }
+.detail-head h1 { font-size: var(--fs-6); font-weight: 600; line-height: 1.2; margin: 0; }
 /* 押すと同じ種別だけを見られる。札から種別を外したぶんの入口。 */
 .detail-head .cat {
-  font-size: 12px; color: var(--text-2); margin-top: 3px;
+  font-size: var(--fs-2); color: var(--text-2); margin-top: 4px;
   letter-spacing: 0.04em; font-weight: 500;
   background: none; border: none; padding: 0; display: block;
 }
@@ -403,15 +415,15 @@ textarea.field { resize: vertical; line-height: 1.6; }
   border-radius: var(--r-medium); margin-bottom: 14px;
   box-shadow: var(--shadow-raised); overflow: hidden;
 }
-.row { display: flex; align-items: center; gap: 10px; padding: 12px 15px; }
+.row { display: flex; align-items: center; gap: 10px; padding: 12px 16px; }
 .row + .row { border-top: 0.5px solid var(--hairline); }
 .row .lab {
-  font-size: 11px; color: var(--text-2); margin-bottom: 3px;
+  font-size: var(--fs-1); color: var(--text-2); margin-bottom: 4px;
   letter-spacing: 0.04em; font-weight: 500;
 }
 .row .val { word-break: break-word; line-height: 1.45; }
 .row .val.mono {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13.5px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: var(--fs-3);
   letter-spacing: 0.01em;
 }
 @media (hover: hover) {
@@ -420,22 +432,22 @@ textarea.field { resize: vertical; line-height: 1.6; }
 }
 
 .banner {
-  display: flex; gap: 11px; padding: 12px 15px; border-radius: var(--r-medium);
+  display: flex; gap: 12px; padding: 12px 16px; border-radius: var(--r-medium);
   margin-bottom: 10px; align-items: flex-start;
   background: color-mix(in srgb, var(--warn) 11%, transparent);
   border: 0.5px solid color-mix(in srgb, var(--warn) 22%, transparent);
 }
-.banner > .icon { color: var(--warn); margin-top: 1px; }
-.banner .bt { font-weight: 600; font-size: 13.5px; }
-.banner .bd { font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.banner > .icon { color: var(--warn); margin-top: 2px; }
+.banner .bt { font-weight: 600; font-size: var(--fs-3); }
+.banner .bd { font-size: var(--fs-2); color: var(--text-2); line-height: 1.5; }
 .banner.quiet { background: var(--sunken); border-color: var(--hairline); }
 .banner.quiet > .icon { color: var(--text-2); }
 
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
 .tag {
-  font-size: 12.5px; padding: 3px 11px 3px 8px; border-radius: 999px;
+  font-size: var(--fs-2); padding: 4px 12px 4px 8px; border-radius: 999px;
   background: var(--sunken); border: 0.5px solid var(--hairline);
-  display: inline-flex; align-items: center; gap: 5px; color: var(--text-2);
+  display: inline-flex; align-items: center; gap: 4px; color: var(--text-2);
 }
 .tag .icon { color: var(--text-3); }
 button.tag:hover {
@@ -446,27 +458,27 @@ button.tag:hover .icon { color: currentColor; }
 
 .notes {
   white-space: pre-wrap; background: var(--content); border: 0.5px solid var(--hairline);
-  border-radius: var(--r-medium); padding: 15px; margin-bottom: 14px;
+  border-radius: var(--r-medium); padding: 16px; margin-bottom: 14px;
   box-shadow: var(--shadow-raised); line-height: 1.65;
 }
-.meta { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.meta { font-size: var(--fs-2); color: var(--text-2); font-variant-numeric: tabular-nums; }
 
-.strength { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+.strength { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .bar { flex: 1; height: 5px; border-radius: 999px; background: var(--hairline); overflow: hidden; max-width: 180px; }
 .bar > i { display: block; height: 100%; border-radius: 999px; transition: width .3s var(--ease); }
-.strength .lv { font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.strength .lv { font-size: var(--fs-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-.otp { display: flex; align-items: center; gap: 14px; padding: 13px 15px; }
+.otp { display: flex; align-items: center; gap: 14px; padding: 12px 16px; }
 .otp .code {
-  font: 600 27px/1 ui-monospace, 'SF Mono', Menlo, monospace;
-  font-variant-numeric: tabular-nums; letter-spacing: .06em; margin-top: 3px;
+  font: 600 var(--fs-6)/1 ui-monospace, 'SF Mono', Menlo, monospace;
+  font-variant-numeric: tabular-nums; letter-spacing: .06em; margin-top: 4px;
 }
 .otp .ring { width: 29px; height: 29px; flex: none; }
 .otp .ring text { font: 500 9px -apple-system, system-ui, sans-serif; fill: var(--text-2); }
 
 details.history { margin-bottom: 14px; }
 details.history summary {
-  cursor: default; font-size: 13px; color: var(--text-2);
+  cursor: default; font-size: var(--fs-3); color: var(--text-2);
   padding: 4px 0; list-style: none; display: flex; align-items: center; gap: 6px;
 }
 details.history summary::-webkit-details-marker { display: none; }
@@ -477,7 +489,7 @@ details.history summary::before {
 }
 details.history[open] summary::before { transform: rotate(90deg); }
 
-.actions { display: flex; gap: 9px; margin-top: 26px; }
+.actions { display: flex; gap: 8px; margin-top: 26px; }
 .actions .push { width: auto; padding: 8px 22px; }
 
 /* ---------- ダイアログ ---------- */
@@ -489,12 +501,12 @@ dialog {
 }
 dialog::backdrop { background: rgba(0, 0, 0, .34); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 .dlg-head {
-  display: flex; align-items: center; gap: 10px; padding: 13px 16px;
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
   border-bottom: 0.5px solid var(--hairline); position: sticky; top: 0;
   background: color-mix(in srgb, var(--window) 80%, transparent);
   -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); z-index: 2;
 }
-.dlg-head h2 { font-size: 14.5px; font-weight: 600; line-height: 1.3; margin: 0; flex: 1; text-align: center; }
+.dlg-head h2 { font-size: var(--fs-4); font-weight: 600; line-height: 1.3; margin: 0; flex: 1; text-align: center; }
 .dlg-head button {
   background: none; border: none; color: var(--accent, var(--accent-fallback));
   font-weight: 500; padding: 4px 8px; border-radius: var(--r-small);
@@ -509,33 +521,33 @@ dialog::backdrop { background: rgba(0, 0, 0, .34); -webkit-backdrop-filter: blur
   border-radius: var(--r-medium); margin-bottom: 16px;
   box-shadow: var(--shadow-raised); overflow: hidden;
 }
-.group > .g-row { padding: 12px 15px; }
+.group > .g-row { padding: 12px 16px; }
 .group > .g-row + .g-row { border-top: 0.5px solid var(--hairline); }
 button.g-row { width: 100%; border: none; background: none; text-align: left; color: var(--text); display: block; }
 button.g-row:hover { background: var(--hover); }
-.g-lab { display: block; font-size: 11px; color: var(--text-2); margin-bottom: 5px; letter-spacing: 0.04em; font-weight: 500; }
-.g-title { font-size: 11.5px; font-weight: 600; line-height: 1.4; color: var(--text-2); margin: 0 4px 6px; letter-spacing: 0.04em; }
-.g-foot { font-size: 12px; color: var(--text-2); margin: -10px 4px 16px; line-height: 1.6; }
+.g-lab { display: block; font-size: var(--fs-1); color: var(--text-2); margin-bottom: 4px; letter-spacing: 0.04em; font-weight: 500; }
+.g-title { font-size: var(--fs-1); font-weight: 600; line-height: 1.4; color: var(--text-2); margin: 0 4px 6px; letter-spacing: 0.04em; }
+.g-foot { font-size: var(--fs-2); color: var(--text-2); margin: -10px 4px 16px; line-height: 1.6; }
 .inline { display: flex; align-items: center; gap: 8px; }
 .inline .field { margin: 0; }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 
 .pill {
-  padding: 3px 12px; border-radius: 999px; border: 0.5px solid var(--hairline);
-  background: var(--sunken); font-size: 12.5px; color: var(--text-2);
+  padding: 4px 12px; border-radius: 999px; border: 0.5px solid var(--hairline);
+  background: var(--sunken); font-size: var(--fs-2); color: var(--text-2);
 }
 .pill:hover { background: var(--hover); }
 
 input[type=range] { accent-color: var(--accent, var(--accent-fallback)); width: 100%; }
 input[type=checkbox] { accent-color: var(--accent, var(--accent-fallback)); width: 15px; height: 15px; }
-select.field { padding: 7px 11px; }
+select.field { padding: 8px 12px; }
 
 #toast {
   position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(8px);
   background: color-mix(in srgb, var(--raised) 88%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(180%); backdrop-filter: blur(24px) saturate(180%);
   border: 0.5px solid var(--hairline); color: var(--text);
-  padding: 10px 18px; border-radius: 999px; font-size: 13.5px;
+  padding: 10px 18px; border-radius: 999px; font-size: var(--fs-3);
   box-shadow: var(--shadow-sheet);
   opacity: 0; pointer-events: none; transition: opacity .18s var(--ease), transform .18s var(--ease);
   z-index: 100; max-width: 76vw; text-align: center;
@@ -553,9 +565,9 @@ select.field { padding: 7px 11px; }
 @media (max-width: 720px) {
   #bar { padding: 10px 12px; gap: 8px; min-height: 58px; flex-wrap: wrap; }
   .sheet { padding: 18px 14px 64px; }
-  .detail-head .avatar { width: 50px; height: 50px; border-radius: 13px; }
-  .detail-head h1 { font-size: 22px; }
-  .item-open { padding: 13px 13px; }
+  .detail-head .avatar { width: 50px; height: 50px; }
+  .detail-head h1 { font-size: var(--fs-6); }
+  .item-open { padding: 12px 12px; }
   .quick { width: 52px; }
   dialog { width: 100%; max-width: 100vw; max-height: 92vh;
            border-radius: var(--r-large) var(--r-large) 0 0;
@@ -573,16 +585,16 @@ select.field { padding: 7px 11px; }
  */
 
 .kit { line-height: 1.7; }
-.kit h2 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+.kit h2 { font-size: var(--fs-5); font-weight: 600; margin: 0 0 10px; }
 .kit h3 {
-  font-size: 12px; font-weight: 600; color: var(--text-2);
+  font-size: var(--fs-2); font-weight: 600; color: var(--text-2);
   margin: 20px 0 6px; letter-spacing: 0.04em;
 }
-.kit p { margin: 0 0 8px; font-size: 13px; color: var(--text-2); }
+.kit p { margin: 0 0 8px; font-size: var(--fs-3); color: var(--text-2); }
 .kit-line {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: 13px;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace; font-size: var(--fs-3);
   background: var(--sunken); border: 0.5px solid var(--hairline);
-  border-radius: var(--r-small); padding: 9px 12px; word-break: break-all;
+  border-radius: var(--r-small); padding: 8px 12px; word-break: break-all;
 }
 /* 手で書き込むための空欄。アプリは決してここに書かない。 */
 .kit-blank {
@@ -593,7 +605,7 @@ select.field { padding: 7px 11px; }
   color: var(--danger); font-weight: 500;
   border-left: 3px solid var(--danger); padding-left: 10px;
 }
-.kit-foot { font-size: 11.5px; color: var(--text-2); margin-top: 22px; }
+.kit-foot { font-size: var(--fs-1); color: var(--text-2); margin-top: 22px; }
 
 @media print {
   /* 紙には中身だけを出す。背景の一覧が透けて出ると、
@@ -630,7 +642,7 @@ select.field { padding: 7px 11px; }
   /* 札は見た目を保ち、押せる範囲だけ上下へ広げる */
   .chips { gap: 8px; }
   .chip { position: relative; min-height: 34px; }
-  .chip::after { content: ''; position: absolute; inset: -5px -2px; }
+  .chip::after { content: ''; position: absolute; inset: -6px -2px; }
 
   /* 上の帯は 2 段にする。1 段目に名前と道具、2 段目に検索。
      44px の道具を 4 つ並べると検索欄が 110px 前後に潰れるため。
@@ -662,7 +674,7 @@ select.field { padding: 7px 11px; }
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "17696fdafe0c";</script>
+<script>window.PASSVAULT_BUILD = "83a765ac022d";</script>
 <script>
 
 // ===== core.js =====
