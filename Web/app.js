@@ -907,6 +907,35 @@ const sameSelection = (a, b) => a.kind === b.kind && a.value === b.value;
 
 let lastShownItemId = null;
 
+/// 広い画面では、一覧と詳細を左右に並べる。
+///
+/// 並べない画面（狭い画面・中身が空の保管庫）では、一覧と詳細が切り替わる 1 面。
+/// 空のときに並べないのは、初回の案内を右側の空白と並べて見せる意味がないため。
+const WIDE_QUERY = '(min-width: 1000px)';
+export const isWide = () => layoutOverride.wide ?? window.matchMedia(WIDE_QUERY).matches;
+export const isSplit = () => isWide() && (activeItems().length > 0 || trashedItems().length > 0);
+
+/// 一覧と詳細の描き先。並べるときは専用のペイン、そうでなければ #main そのもの。
+const listHost = () => (isSplit() ? $('#main .pane-list') : $('#main'));
+export const detailHost = () => (isSplit() ? $('#main .pane-detail') : $('#main'));
+
+/// 並べる／並べないの構造を整える。
+/// ペインは作り直さず、あれば使い回す。作り直すと一覧のスクロール位置が先頭に戻る。
+function ensureLayout(split) {
+  const main = $('#main');
+  const has = main.classList.contains('split');
+  if (split && !has) {
+    main.replaceChildren(
+      el('section', { className: 'pane-list', 'aria-label': '項目の一覧' }),
+      el('section', { className: 'pane-detail', 'aria-label': '項目の詳細' }),
+    );
+    main.classList.add('split');
+  } else if (!split && has) {
+    main.replaceChildren();
+    main.classList.remove('split');
+  }
+}
+
 const FOCUSABLE = 'button, a[href], input, select, textarea, summary';
 
 /// 作り直す前に、いまどこにフォーカスがあったかを控える。
@@ -963,23 +992,31 @@ export function render() {
   $('#gate').style.display = 'none';
   $('#app').classList.add('on');
 
-  // 詳細を出している最中に項目が消えた（削除・取り込みなど）ら一覧へ戻す。
-  // 戻さないと、何も無い画面に取り残される。
-  if (state.view === 'detail' && !state.items.some(item => item.id === state.selectedId)) {
-    state.view = 'list';
+  const split = isSplit();
+  const exists = state.items.some(item => item.id === state.selectedId);
+
+  // 開いていた項目が消えた（削除・取り込みなど）ら、何も無い画面に取り残さない。
+  if (!exists) {
+    if (state.view === 'detail') state.view = 'list';
+    if (split) state.selectedId = null;
   }
+  // 並べる画面では、詳細は常に右に出ているので「詳細の面」という状態は持たない。
+  // 狭い画面から広げたとき、開いていた項目は右側に引き継ぐ。
+  if (split) state.view = 'list';
 
   const snapshot = focusSnapshot();
-  renderBar();
-  if (state.view === 'detail') renderDetail();
+  ensureLayout(split);
+  renderBar(split);
+  if (split) { renderListView(); renderDetail(); }
+  else if (state.view === 'detail') renderDetail();
   else renderListView();
 
   // 同じ画面の描き直しなら、フォーカスを元の位置へ戻す。
   // 画面が切り替わったときは、行き先の頭へ移す（戻ったときは開いていた行へ）。
-  const screen = `${state.view}:${state.view === 'detail' ? state.selectedId : ''}`;
+  const screen = split ? 'split' : `${state.view}:${state.view === 'detail' ? state.selectedId : ''}`;
   if (screen === lastScreen) {
     restoreFocus(snapshot);
-  } else if (!document.querySelector('dialog[open]')) {
+  } else if (!split && !document.querySelector('dialog[open]')) {
     if (state.view === 'detail') {
       const heading = $('#main h1');
       if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
@@ -991,7 +1028,7 @@ export function render() {
 }
 
 /// 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。
-function renderBar() {
+function renderBar(split = false) {
   const bar = $('#bar');
 
   const tools = (...extra) => el('div', { className: 'bar-tools' }, [
@@ -1004,14 +1041,13 @@ function renderBar() {
                    'aria-label': 'ロック', onclick: lock }, [icon('lock')]),
   ]);
 
-  if (state.view === 'detail') {
-    const item = state.items.find(candidate => candidate.id === state.selectedId);
+  if (state.view === 'detail' && !split) {
     bar.replaceChildren(
       el('button', { className: 'backbtn', title: '一覧へ戻る（Esc）',
                      'aria-label': '一覧へ戻る', onclick: showList },
          [icon('back', 18), el('span', { textContent: selectionTitle(state.selection) })]),
-      // 帯にも名前を出す。下へ辿ったときに何を見ているか分からなくならないように。
-      el('div', { className: 'bar-title', textContent: item ? V.displayTitle(item) : '' }),
+      // 題名は帯に重ねて出さない。直下の見出しと同じものが 2 回出て、散らかるだけだった。
+      el('div', { className: 'grow' }),
       tools(),
     );
     return;
@@ -1141,7 +1177,7 @@ function renderListView() {
     ]));
   }
 
-  $('#main').replaceChildren(el('div', { className: 'sheet' }, parts));
+  listHost().replaceChildren(el('div', { className: 'sheet' }, parts));
 }
 
 async function emptyTrash() {
@@ -1175,7 +1211,12 @@ export function filterBy(selection) {
 
 export function openItem(id) {
   state.selectedId = id;
-  state.view = 'detail';
+  if (isSplit()) {
+    // 並べる画面では面を切り替えない。キーボードの位置を、開いた項目に合わせる。
+    state.cursor = visibleItems().findIndex(item => item.id === id);
+  } else {
+    state.view = 'detail';
+  }
   noteActivity();
   render();
 }
@@ -1233,9 +1274,11 @@ function itemRow(item, index) {
     marks.append(mark);
   }
 
+  const isOpen = isSplit() && item.id === state.selectedId;
   const row = el('div', {
-    className: `item-row${index === state.cursor ? ' cur' : ''}`,
+    className: `item-row${index === state.cursor ? ' cur' : ''}${isOpen ? ' open' : ''}`,
     'data-id': item.id,
+    ...(isOpen ? { 'aria-current': 'true' } : {}),
   }, [
     el('button', {
       className: 'item-open', onclick: () => openItem(item.id),
@@ -1316,6 +1359,8 @@ document.addEventListener('keydown', event => {
   const typing = document.activeElement?.tagName === 'INPUT'
               || document.activeElement?.tagName === 'TEXTAREA';
 
+  const split = isSplit();
+
   if (event.key === 'Escape') {
     if (state.view === 'detail') { showList(); event.preventDefault(); return; }
     if (state.search) {
@@ -1323,6 +1368,12 @@ document.addEventListener('keydown', event => {
       state.cursor = -1;
       renderListView();
       search?.focus();
+      event.preventDefault();
+    } else if (split && state.selectedId) {
+      // 並べているときは、閉じる操作が「選択を外す」になる
+      state.selectedId = null;
+      state.cursor = -1;
+      render();
       event.preventDefault();
     }
     return;
@@ -1336,7 +1387,12 @@ document.addEventListener('keydown', event => {
     if (!items.length) return;
     const step = event.key === 'ArrowDown' ? 1 : -1;
     state.cursor = Math.max(0, Math.min(items.length - 1, state.cursor + step));
-    renderListView();
+    if (split) {
+      // 並べているときは、動かすだけで右の詳細が追従する
+      openItem(items[state.cursor].id);
+    } else {
+      renderListView();
+    }
     $('.item-row.cur')?.scrollIntoView({ block: 'nearest' });
     event.preventDefault();
     return;
@@ -1345,21 +1401,31 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Enter' && items[state.cursor]) {
     // 検索欄で入力中でも開ける。矢印で選んでそのまま Enter が自然な流れ。
     openItem(items[state.cursor].id);
+    if (split) {
+      // 並べているときは、右の詳細へ入る（Tab で欄を辿れる）
+      const heading = $('.pane-detail h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    }
     event.preventDefault();
     return;
   }
 
   // 選んでいる項目を、開かずに写す。⌘C がパスワード、⌘⇧C がユーザー名。
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && items[state.cursor]) {
+  // 並べているときは、右に開いている項目も対象にする。
+  const target = items[state.cursor]
+    ?? (split ? items.find(candidate => candidate.id === state.selectedId) : null);
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c' && target) {
     if (!window.getSelection()?.toString()) {
-      const item = items[state.cursor];
+      const item = target;
       if (event.shiftKey) {
         const username = V.primaryUsername(item);
         if (username) { copyPlain(username, 'ユーザー名'); event.preventDefault(); }
       } else {
         const password = V.primaryPassword(item);
         if (password) {
-          copySecret(password, 'パスワード').then(ok => { if (ok) flashCopied($('.item-row.cur .quick'), null, 16); });
+          copySecret(password, 'パスワード').then(ok => {
+            if (ok) flashCopied($('.item-row.cur .quick') ?? $('.item-row.open .quick'), null, 16);
+          });
           event.preventDefault();
         }
       }
@@ -1372,6 +1438,9 @@ document.addEventListener('keydown', event => {
     search?.focus();
   }
 });
+
+// 窓の幅が閾値をまたいだら、並べる／切り替えるを組み直す
+window.matchMedia?.(WIDE_QUERY).addEventListener?.('change', () => { if (state.key) render(); });
 
 for (const event of ['click', 'keydown', 'pointermove']) {
   document.addEventListener(event, noteActivity, { passive: true });

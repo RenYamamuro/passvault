@@ -310,8 +310,8 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .item-row + .item-row { border-top: 0.5px solid var(--hairline); }
 .item-row:hover { background: var(--hover); }
 /* キーボードが指している行。触っている場所を見失わないための印。 */
-.item-row.cur { background: var(--selected); }
-.item-row.cur::before {
+.item-row.cur, .item-row.open { background: var(--selected); }
+.item-row.cur::before, .item-row.open::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
   background: var(--accent, var(--accent-fallback));
 }
@@ -333,7 +333,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-weight: 450;
 }
-.item-row.cur .t { font-weight: 550; }
+.item-row.cur .t, .item-row.open .t { font-weight: 550; }
 .item-row .s {
   display: block; font-size: var(--fs-2); color: var(--text-2); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -614,6 +614,26 @@ select.field { padding: 8px 12px; }
   .kit-warn { color: #000; border-left-color: #000; }
   .kit p, .kit h3 { color: #333; }
 }
+
+/* ---------- 並べる画面（広いとき） ---------- */
+/*
+ * 1000px 以上では、左に一覧、右に詳細を並べる（切り替えない）。
+ * 以前は広い画面でも幅 720px の柱が中央に立つだけで、左右の約 45% が空いていた。
+ * ペインは作り直さず中身だけを入れ替えるので、選んでも一覧のスクロール位置は動かない。
+ * 狭い画面と、中身が空の保管庫は、これまでどおり 1 面。
+ */
+
+#main.split {
+  display: grid; grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+  overflow: hidden;
+}
+.pane-list, .pane-detail { min-height: 0; overflow-y: auto; }
+.pane-list { border-right: 0.5px solid var(--hairline); background: var(--window); }
+.pane-list .sheet { max-width: none; margin: 0; padding: 20px 16px 48px; }
+.pane-detail { background: var(--content); }
+.pane-detail .sheet { max-width: 680px; padding: 32px 40px 64px; }
+.empty.placeholder { padding-top: 112px; }
+.empty .sub { max-width: 320px; font-size: var(--fs-3); line-height: 1.6; color: var(--text-2); }
 
 /* ---------- 指で押す大きさ ---------- */
 /*

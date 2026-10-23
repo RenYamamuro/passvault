@@ -5,7 +5,7 @@ import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied,
+  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -34,10 +34,21 @@ let otpTimer = null;
 
 hooks.renderDetail = function renderDetail() {
   clearInterval(otpTimer);
-  const column = $('#main');
+  const column = detailHost();
   const item = state.items.find(candidate => candidate.id === state.selectedId);
 
   if (!item) {
+    if (isSplit()) {
+      // 並べているときは、何も選んでいない状態が普通にある。右側を空白にせず、次の手を示す。
+      column.replaceChildren(el('div', { className: 'sheet' }, [
+        el('div', { className: 'empty placeholder' }, [
+          el('span', { className: 'big' }, [icon('vault', 44)]),
+          el('span', { className: 'lead', textContent: '項目を選ぶと、中身がここに出ます' }),
+          el('span', { className: 'sub', textContent: '↑ ↓ で選べます。⌘C でパスワード、⌘⇧C でユーザー名を写せます。' }),
+        ]),
+      ]));
+      return;
+    }
     // render() が一覧へ戻すので普通は通らない。通ったときに空白を残さないための備え。
     column.replaceChildren(el('div', { className: 'sheet' }, [
       el('div', { className: 'empty' }, [

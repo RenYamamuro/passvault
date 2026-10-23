@@ -739,6 +739,7 @@ const savedAway = localStorage.getItem('passvault.lockWhenAway');
 const savedSort = localStorage.getItem('passvault.sort');
 const realAsk = App.hooks.askConfirm;
 const realImport = App.hooks.importFromCSV;
+App.layoutOverride.wide = false;   // 窓の広さで結果が変わらないよう、狭い画面に固定する
 
 try {
   // --- 離席施錠は既定でオフ ---
@@ -889,6 +890,7 @@ try {
   check('絞った先が空なら、初回の案内ではなく「この区分には何もありません」と言う',
         !document.querySelector('.empty.first'));
 } finally {
+  App.layoutOverride.wide = null;
   App.hooks.askConfirm = realAsk;
   App.hooks.importFromCSV = realImport;
   if (savedAway === null) localStorage.removeItem('passvault.lockWhenAway');
@@ -999,6 +1001,122 @@ section('コピーと、その場の手応え');
     App.state.view = 'list';
     App.state.selectedId = null;
     App.state.revealed.clear();
+  }
+}
+
+// ============================================================
+section('広い画面での並べ表示（一覧と詳細）');
+// ============================================================
+// 広い画面で、幅 720px の柱が中央に立つだけで左右の約 45% が空いていた。
+// 1000px 以上では左に一覧、右に詳細を並べる。狭い画面は今までどおり切り替え。
+{
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const key = (name, extra = {}) =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, ...extra }));
+  const first = makeLogin('Apple', 'a1');
+  const second = makeLogin('Banana', 'b2');
+  const third = makeLogin('Cherry', 'c3');
+  const mainNode = () => document.getElementById('main');
+  const detailTitle = () => document.querySelector('.pane-detail h1')?.textContent ?? null;
+
+  try {
+    App.state.header = V.makeHeader(1000);
+    App.state.key = await V.deriveKey('split-pass', App.state.header);
+    App.state.items = [third, first, second];
+    App.state.deletions = [];
+    App.state.findings = [];
+    App.state.selection = { kind: 'all' };
+    App.state.search = '';
+    App.state.view = 'list';
+    App.state.selectedId = null;
+    App.state.cursor = -1;
+    App.state.holds = 0;
+    localStorage.removeItem('passvault.sort');
+
+    App.layoutOverride.wide = true;
+    App.render();
+    check('広いと一覧と詳細が並ぶ',
+          mainNode().classList.contains('split')
+          && !!document.querySelector('.pane-list') && !!document.querySelector('.pane-detail'));
+    check('何も選んでいないとき、右は空白ではなく次の手を示す',
+          !!document.querySelector('.pane-detail .placeholder'));
+
+    const listPane = document.querySelector('.pane-list');
+    const detailPane = document.querySelector('.pane-detail');
+    App.openItem(first.id);
+    check('選ぶと右に詳細が出る（面は切り替わらない）',
+          detailTitle() === 'Apple' && App.state.view === 'list');
+    check('一覧は出たまま残る', document.querySelectorAll('.pane-list .item-row').length === 3);
+    check('選んだ行に印が付く（aria-current）',
+          document.querySelector('.item-row.open')?.getAttribute('aria-current') === 'true'
+          && document.querySelectorAll('.item-row.open').length === 1);
+    check('キーボードの位置が、選んだ項目に合う', App.state.cursor === 0);
+
+    App.openItem(second.id);
+    check('選び直すと詳細が入れ替わる', detailTitle() === 'Banana');
+    check('ペインは作り直さない（一覧のスクロール位置を保つため）',
+          document.querySelector('.pane-list') === listPane && document.querySelector('.pane-detail') === detailPane);
+
+    // --- キーボード ---
+    key('ArrowDown');
+    await wait(30);
+    check('↓ で動かすと、右の詳細が追従する', detailTitle() === 'Cherry' && App.state.cursor === 2);
+    key('ArrowUp');
+    await wait(30);
+    check('↑ でも追従する', detailTitle() === 'Banana');
+
+    key('Enter');
+    await wait(30);
+    check('Enter で右の詳細へ入る（フォーカスが見出しに移る）',
+          document.activeElement === document.querySelector('.pane-detail h1'));
+
+    key('Escape');
+    await wait(30);
+    check('Esc で選択を外す（右は次の手の案内に戻る）',
+          App.state.selectedId === null && !!document.querySelector('.pane-detail .placeholder'));
+
+    // 検索があるときは、Esc はまず検索を消す
+    App.state.search = 'Apple';
+    App.openItem(first.id);
+    key('Escape');
+    await wait(30);
+    check('検索があるときの Esc は、まず検索を消す（選択は外さない）',
+          App.state.search === '' && App.state.selectedId === first.id);
+
+    // --- 並べない場合 ---
+    App.state.selectedId = null;
+    App.layoutOverride.wide = false;
+    App.render();
+    check('狭くなったら 1 面に戻る（並べない）',
+          !mainNode().classList.contains('split') && !document.querySelector('.pane-detail'));
+
+    App.state.items = [];
+    App.layoutOverride.wide = true;
+    App.render();
+    check('中身が空の保管庫は、広くても並べない（初回の案内を右の空白と並べない）',
+          !mainNode().classList.contains('split') && !!document.querySelector('.empty.first'));
+
+    // 狭い画面で開いていた項目を、広げたら右に引き継ぐ
+    App.state.items = [first, second];
+    App.layoutOverride.wide = false;
+    App.state.view = 'list';
+    App.openItem(second.id);
+    check('狭い画面では詳細の面に切り替わる', App.state.view === 'detail');
+    App.layoutOverride.wide = true;
+    App.render();
+    check('広げたら、開いていた項目が右に引き継がれる', detailTitle() === 'Banana' && App.state.view === 'list');
+  } finally {
+    App.layoutOverride.wide = null;
+    App.state.key = null;
+    App.state.header = null;
+    App.state.items = [];
+    App.state.selection = { kind: 'all' };
+    App.state.search = '';
+    App.state.view = 'list';
+    App.state.selectedId = null;
+    App.state.cursor = -1;
+    mainNode().classList.remove('split');
+    mainNode().replaceChildren();
   }
 }
 
