@@ -905,6 +905,104 @@ try {
 }
 
 // ============================================================
+section('コピーと、その場の手応え');
+// ============================================================
+// 一番多い操作が「パスワードを写す」なのに、小さなアイコンを狙わせていた。
+// 行のどこを押しても写せるようにし、押した場所で結果が分かるようにする。
+{
+  const realClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const written = [];
+  let failWrites = false;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    writeText: async text => { if (failWrites) throw new Error('拒否'); written.push(text); },
+    readText: async () => '',
+  } });
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  App.layoutOverride.wide = false;
+
+  try {
+    check('コピーに成功したら true を返す', (await App.copyPlain('abc', 'テスト')) === true);
+    failWrites = true;
+    check('拒否されたら false を返す（成功と偽らない）', (await App.copySecret('abc', 'テスト')) === false);
+    failWrites = false;
+
+    // --- 押した場所でのフィードバック ---
+    const holder = App.el('div');
+    document.body.append(holder);
+    const original = Object.assign(App.el('span'), { id: 'original-icon' });
+    const button = App.el('button', {}, [original]);
+    const row = App.el('div', {}, [button]);
+    holder.append(row);
+    App.flashCopied(button, row);
+    check('押したボタンがチェックに変わる', button.classList.contains('done') && !button.contains(original));
+    check('行にも「コピーした」印が付く', row.classList.contains('copied'));
+    // 続けて押しても、元のアイコンを失わない（チェックを「元」と覚えてしまう欠陥があった）
+    await wait(300);
+    App.flashCopied(button, row);
+    await wait(1600);
+    check('二重に押しても、時間が来れば元のアイコンに戻る',
+          !button.classList.contains('done') && button.contains(original) && !row.classList.contains('copied'));
+    holder.remove();
+
+    const detached = App.el('button');
+    let threw = false;
+    try { App.flashCopied(detached); } catch { threw = true; }
+    check('画面から消えたボタンには何もしない（例外を出さない）', !threw);
+
+    // --- 詳細の行 ---
+    const site = makeLogin('行テスト', 'pw-secret-1');
+    site.fields[0].value = 'user-1';
+    site.fields[2].value = 'https://example.com';
+    App.state.header = V.makeHeader(1000);
+    App.state.key = await V.deriveKey('copy-pass', App.state.header);
+    App.state.items = [site];
+    App.state.deletions = [];
+    App.state.view = 'list';
+    App.state.selection = { kind: 'all' };
+    App.state.search = '';
+    App.state.revealed.clear();
+    App.openItem(site.id);
+
+    const rowFor = label => [...document.querySelectorAll('#main .row')]
+      .find(node => node.querySelector('.lab')?.textContent === label);
+    written.length = 0;
+
+    rowFor('パスワード').click();
+    await wait(30);
+    check('行のどこを押してもコピーされる（パスワード）', written.at(-1) === 'pw-secret-1');
+    check('コピーしても伏せ字のまま（表示は切り替わらない）',
+          !App.state.revealed.size && rowFor('パスワード').querySelector('.val').textContent.includes('•'));
+    rowFor('ユーザー名').click();
+    await wait(30);
+    check('行のどこを押してもコピーされる（ユーザー名）', written.at(-1) === 'user-1');
+
+    const before = written.length;
+    rowFor('ウェブサイト').click();
+    await wait(30);
+    check('URL の行は行全体を押してもコピーしない（リンクと取り違えるため）', written.length === before);
+
+    rowFor('パスワード').querySelector('button[aria-label$="を表示"]').click();
+    await wait(30);
+    check('表示ボタンを押してもコピーされない（二重に反応しない）', written.length === before);
+
+    check('コピーできる行は、押せることが分かる',
+          rowFor('ユーザー名').title === 'クリックでコピー' && rowFor('ウェブサイト').title !== 'クリックでコピー');
+    check('各行のコピー釦は、キーボードと読み上げの入口として残る',
+          !!rowFor('ユーザー名').querySelector('button[aria-label="ユーザー名をコピー"]'));
+  } finally {
+    App.layoutOverride.wide = null;
+    if (realClipboard) Object.defineProperty(navigator, 'clipboard', realClipboard);
+    else delete navigator.clipboard;
+    App.state.key = null;
+    App.state.header = null;
+    App.state.items = [];
+    App.state.view = 'list';
+    App.state.selectedId = null;
+    App.state.revealed.clear();
+  }
+}
+
+// ============================================================
 section('項目のタイル（頭文字）');
 // ============================================================
 // サイトのアイコンは外へ取りに行く通信が要り、どのサイトの口座を持つかが漏れるので採らない。

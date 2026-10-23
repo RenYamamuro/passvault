@@ -349,6 +349,12 @@ textarea.field { resize: vertical; line-height: 1.6; }
   border-left: 0.5px solid transparent;
 }
 .quick:hover { background: var(--hover); color: var(--accent, var(--accent-fallback)); }
+
+/* コピーできた直後。押した場所で、視線を動かさずに分かる。 */
+.iconbtn.done, .quick.done { color: var(--ok); opacity: 1 !important; }
+.row.copyable, .otp.copyable { cursor: pointer; }
+.row.copyable:hover, .otp.copyable:hover { background: var(--hover); }
+.row.copied, .otp.copied { background: color-mix(in srgb, var(--ok) 11%, transparent); }
 @media (hover: hover) {
   .quick { opacity: 0; }
   .item-row:hover .quick, .item-row.cur .quick, .quick:focus-visible { opacity: 1; }

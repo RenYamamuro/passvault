@@ -35,6 +35,11 @@ export const state = {
 };
 
 export const CLIPBOARD_CLEAR_SECONDS = 30;
+
+/// 画面の広さによる切り替え（一覧と詳細を並べるか）を、検証から固定するための差し込み口。
+/// 検証ページは開いた窓の広さで挙動が変わってしまい、通ったり落ちたりするのを防ぐ。
+/// null なら実際の広さに従う。
+export const layoutOverride = { wide: null };
 export const canUseFilePicker = typeof window.showSaveFilePicker === 'function';
 
 export const settings = {
@@ -119,13 +124,40 @@ export function toast(message) {
 
 export function noteActivity() { state.lastActivity = Date.now(); }
 
+/// 戻り値は成否。押した場所で「コピーした」と見せるために、呼び出し側が知る必要がある。
 export async function copyPlain(text, label) {
   try {
     await navigator.clipboard.writeText(text);
     toast(`${label}をコピーしました`);
+    return true;
   } catch {
     toast('コピーできませんでした（ブラウザが拒否しました）');
+    return false;
   }
+}
+
+/// 押したボタンの場でコピーの結果を見せる。
+///
+/// 画面の下の方に出る通知だけだと、押した場所から目を離して確かめることになる。
+/// 手元のボタンが一瞬チェックに変われば、視線を動かさずに済む。
+/// 作り直されて消えたボタンには何もしない。
+export function flashCopied(button, row = null, size = 17) {
+  if (!button?.isConnected) return;
+  clearTimeout(button.flashTimer);
+  if (!button.classList.contains('done')) {
+    // 元のアイコンは、最初に押されたときだけ控える。
+    // 続けて押された 2 回目に控えると、チェックを「元」と覚えて戻らなくなる。
+    button.originalIcon = button.firstElementChild;
+    button.replaceChildren(icon('check', size));
+    button.classList.add('done');
+  }
+  row?.classList.add('copied');
+  button.flashTimer = setTimeout(() => {
+    if (!button.isConnected) return;
+    button.classList.remove('done');
+    row?.classList.remove('copied');
+    button.replaceChildren(button.originalIcon ?? icon('copy', size));
+  }, 1400);
 }
 
 /// 秘密はしばらくしたら消す。
@@ -142,8 +174,10 @@ export async function copySecret(text, label) {
         }
       } catch { /* 読み取りが拒否される場合は消せない */ }
     }, CLIPBOARD_CLEAR_SECONDS * 1000);
+    return true;
   } catch {
     toast('コピーできませんでした（ブラウザが拒否しました）');
+    return false;
   }
 }
 
@@ -1219,13 +1253,17 @@ function itemRow(item, index) {
   // わざわざ詳細を開かせる理由がない。
   const password = V.primaryPassword(item);
   if (password && !item.trashedAt) {
-    row.append(el('button', {
+    const quick = el('button', {
       // Tab の停止点は行ごとに 1 つにする（50 件なら 100 回の Tab になるため）。
       // キーボードでは ↑↓ で行を選んで ⌘C が同じ働きをする。
       className: 'quick', tabindex: '-1', title: 'パスワードをコピー',
       'aria-label': `${V.displayTitle(item)} のパスワードをコピー`,
-      onclick: event => { event.stopPropagation(); copySecret(password, 'パスワード'); },
-    }, [icon('copy', 15)]));
+      onclick: async event => {
+        event.stopPropagation();
+        if (await copySecret(password, 'パスワード')) flashCopied(quick, null, 16);
+      },
+    }, [icon('copy', 16)]);
+    row.append(quick);
   }
   return row;
 }
@@ -1320,7 +1358,10 @@ document.addEventListener('keydown', event => {
         if (username) { copyPlain(username, 'ユーザー名'); event.preventDefault(); }
       } else {
         const password = V.primaryPassword(item);
-        if (password) { copySecret(password, 'パスワード'); event.preventDefault(); }
+        if (password) {
+          copySecret(password, 'パスワード').then(ok => { if (ok) flashCopied($('.item-row.cur .quick'), null, 16); });
+          event.preventDefault();
+        }
       }
     }
     return;

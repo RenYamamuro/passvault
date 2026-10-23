@@ -5,7 +5,7 @@ import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor,
+  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -198,6 +198,28 @@ function fieldRow(field) {
   ]);
 
   const row = el('div', { className: 'row' }, [body]);
+  const copyButton = el('button', {
+    className: 'iconbtn', title: 'コピー', 'aria-label': `${field.label}をコピー`,
+  }, [icon('copy')]);
+  const copy = async () => {
+    const copied = concealed ? await copySecret(field.value, field.label)
+                             : await copyPlain(field.value, field.label);
+    if (copied) flashCopied(copyButton, row);
+  };
+  copyButton.onclick = copy;
+
+  // 行のどこを押してもコピーできる。一番多い操作なのに、小さなアイコンを狙わせていた。
+  // ただし URL の行は、文字がリンクなので行全体にはしない（開くつもりで押して写してしまう）。
+  // 範囲選択をしているとき（ユーザー名の一部だけ写したい、など）も何もしない。
+  if (field.kind !== 'url') {
+    row.classList.add('copyable');
+    row.title = 'クリックでコピー';
+    row.onclick = event => {
+      if (event.target.closest('button, a')) return;
+      if (window.getSelection()?.toString()) return;
+      copy();
+    };
+  }
   if (concealed) {
     row.append(el('button', {
       className: 'iconbtn', title: revealed ? '隠す' : '表示',
@@ -208,10 +230,7 @@ function fieldRow(field) {
       },
     }, [icon(revealed ? 'eyeOff' : 'eye')]));
   }
-  row.append(el('button', {
-    className: 'iconbtn', title: 'コピー', 'aria-label': `${field.label}をコピー`,
-    onclick: () => concealed ? copySecret(field.value, field.label) : copyPlain(field.value, field.label),
-  }, [icon('copy')]));
+  row.append(copyButton);
   return row;
 }
 
@@ -240,17 +259,28 @@ function mountOTP(container, secret) {
     ' stroke-linecap="round" transform="rotate(-90 16 16)"/>' +
     '<text x="16" y="20" text-anchor="middle">0</text>';
 
-  container.replaceChildren(el('div', { className: 'otp' }, [
+  const copyCode = async () => {
+    if (await copySecret(await X.otpCode(config), 'ワンタイムパスワード')) flashCopied(copyButton, otpRow);
+  };
+  const copyButton = el('button', {
+    className: 'iconbtn', title: 'コピー', 'aria-label': 'ワンタイムパスワードをコピー',
+    onclick: copyCode,
+  }, [icon('copy')]);
+  const otpRow = el('div', {
+    className: 'otp copyable', title: 'クリックでコピー',
+    onclick: event => {
+      if (event.target.closest('button') || window.getSelection()?.toString()) return;
+      copyCode();
+    },
+  }, [
     el('div', { className: 'grow' }, [
       el('div', { className: 'lab', textContent: 'ワンタイムパスワード' }),
       code,
     ]),
     ring,
-    el('button', {
-      className: 'iconbtn', title: 'コピー', 'aria-label': 'ワンタイムパスワードをコピー',
-      onclick: async () => copySecret(await X.otpCode(config), 'ワンタイムパスワード'),
-    }, [icon('copy')]),
-  ]));
+    copyButton,
+  ]);
+  container.replaceChildren(otpRow);
 
   const circumference = 2 * Math.PI * 14;
   async function tick() {
