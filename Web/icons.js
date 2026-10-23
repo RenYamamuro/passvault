@@ -47,6 +47,7 @@ const STROKED = {
   // 乱数。「パスワード生成」に使う。火花の形は、いまは AI の機能に見えやすい。
   dice: '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.15" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.15" fill="currentColor" stroke="none"/>',
   sort: '<path d="M7 5v14M7 19l-3-3M7 19l3-3M17 19V5M17 5l-3 3M17 5l3 3"/>',
+  chevron: '<path d="m9 5.5 6.5 6.5L9 18.5"/>',
 };
 
 // 塗りで描くもの（線画だと意味が伝わりにくいもの）

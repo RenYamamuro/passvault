@@ -1121,6 +1121,50 @@ section('広い画面での並べ表示（一覧と詳細）');
 }
 
 // ============================================================
+section('設定画面');
+// ============================================================
+// 青いリンクが縦に並ぶだけで、どれが操作でどれが表示なのか、読まないと分からなかった。
+{
+  App.state.header = V.makeHeader(1000);
+  App.state.key = await V.deriveKey('settings-pass', App.state.header);
+  App.state.items = [];
+  App.state.fileHandle = null;
+  App.layoutOverride.wide = false;
+  try {
+    App.hooks.openSettings();
+    const dialog = document.querySelector('dialog[open]');
+    const actions = [...dialog.querySelectorAll('.g-row.action')];
+    check('押すと何かが始まる行は、すべてボタン', actions.length >= 6 && actions.every(node => node.tagName === 'BUTTON'));
+    check('どの操作行にもアイコンと矢印がある',
+          actions.every(node => node.querySelector('.g-ico svg') && node.querySelector('.chev svg')));
+    check('アイコンと矢印は読み上げない（題名だけが伝わる）',
+          actions.every(node => node.querySelector('.g-ico').getAttribute('aria-hidden') === 'true'
+                              && node.querySelector('.chev').getAttribute('aria-hidden') === 'true'));
+    const labels = actions.map(node => node.textContent.trim());
+    check('書き出しは「出る」向き、取り込みは「入る」向きのアイコンで揃う',
+          labels.every((text, i) => {
+            const looksOut = text.includes('書き出す');
+            const looksIn = text.includes('取り込む');
+            if (!looksOut && !looksIn) return true;
+            const iconHTML = actions[i].querySelector('.g-ico svg').innerHTML;
+            // upload / download は path が違う（上向き矢印の頂点 / 下向き矢印の頂点）
+            return looksOut ? iconHTML.includes('M12 14.5v-11') : iconHTML.includes('M12 3.5v11');
+          }));
+    const toggle = dialog.querySelector('input[type=checkbox]');
+    check('スイッチは switch として読み上げられ、名前がある',
+          toggle.getAttribute('role') === 'switch' && toggle.getAttribute('aria-label')?.length > 0);
+    check('標準の見た目に頼る選択メニューは 1 つだけで、ラベルと並ぶ（自動ロック）',
+          dialog.querySelectorAll('select').length === 1);
+    dialog.close();
+  } finally {
+    App.layoutOverride.wide = null;
+    App.state.key = null;
+    App.state.header = null;
+    for (const open of document.querySelectorAll('dialog[open]')) open.close();
+  }
+}
+
+// ============================================================
 section('項目のタイル（頭文字）');
 // ============================================================
 // サイトのアイコンは外へ取りに行く通信が要り、どのサイトの口座を持つかが漏れるので採らない。

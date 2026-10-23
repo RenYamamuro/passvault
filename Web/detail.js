@@ -569,12 +569,25 @@ hooks.openGenerator = function (onUse) {
 // 設定
 // ============================================================
 
+/// 設定の「押すと何かが始まる」行。アイコン・題名・右の矢印。
+/// 青いリンクが縦に並ぶだけだと、どれが操作でどれが表示なのか、読まないと分からなかった。
+function actionRow(iconName, label, onclick) {
+  return el('button', { className: 'g-row action', onclick }, [
+    el('span', { className: 'g-ico', 'aria-hidden': 'true' }, [icon(iconName, 16)]),
+    el('span', { className: 'grow', textContent: label }),
+    el('span', { className: 'chev', 'aria-hidden': 'true' }, [icon('chevron', 14)]),
+  ]);
+}
+
 hooks.openSettings = function () {
   const dialog = makeDialog('設定', null);
   const body = dialog.querySelector('.dlg-body');
 
-  const awaySwitch = el('input', { type: 'checkbox', checked: settings.lockWhenAway,
-    onchange: event => { settings.lockWhenAway = event.target.checked; } });
+  const awaySwitch = el('input', {
+    type: 'checkbox', role: 'switch', 'aria-label': '別のタブへ移ったら施錠',
+    checked: settings.lockWhenAway,
+    onchange: event => { settings.lockWhenAway = event.target.checked; },
+  });
 
   const lockSelect = el('select', { className: 'field', style: 'width:auto',
     onchange: event => { settings.autoLockMinutes = Number(event.target.value); } });
@@ -588,8 +601,7 @@ hooks.openSettings = function () {
     el('div', { className: 'g-title', textContent: 'セキュリティ' }),
     el('div', { className: 'group' }, [
       el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),
-      el('button', { className: 'g-row', style: 'color:var(--accent)',
-        textContent: 'マスターパスワードを変更…', onclick: () => { dialog.close(); openPasswordChange(); } }),
+      actionRow('key', 'マスターパスワードを変更', () => { dialog.close(); openPasswordChange(); }),
       el('div', { className: 'g-row between' }, [
         el('div', {}, [
           el('div', { textContent: '別のタブへ移ったら施錠' }),
@@ -598,8 +610,7 @@ hooks.openSettings = function () {
         ]),
         awaySwitch,
       ]),
-      el('button', { className: 'g-row', style: 'color:var(--accent)',
-        textContent: '緊急用シートを作る…', onclick: () => { dialog.close(); openEmergencyKit(); } }),
+      actionRow('note', '緊急用シートを作る', () => { dialog.close(); openEmergencyKit(); }),
     ]),
     el('div', { className: 'g-foot', textContent:
       'マスターパスワードを忘れると中身は永久に取り出せません。復旧の窓口はありません。'
@@ -620,17 +631,13 @@ hooks.openSettings = function () {
     ]),
   ];
   if (!onFile) {
-    fileRows.push(el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '同期用に書き出す…',
-      onclick: () => downloadVault({ forSync: true }) }));
+    fileRows.push(actionRow('upload', '同期用に書き出す', () => downloadVault({ forSync: true })));
   }
+  // 書き出す＝出ていく向き（upload）、取り込む＝入ってくる向き（download）で揃える
   fileRows.push(
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '保管庫を書き出す（バックアップ）', onclick: () => downloadVault() }),
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '別の保管庫を取り込む…', onclick: () => { dialog.close(); importFromFile(); } }),
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '他のアプリから取り込む（CSV）…', onclick: () => { dialog.close(); importFromCSV(); } }),
+    actionRow('upload', '保管庫を書き出す（バックアップ）', () => downloadVault()),
+    actionRow('download', '別の保管庫を取り込む', () => { dialog.close(); importFromFile(); }),
+    actionRow('download', '他のアプリから取り込む（CSV）', () => { dialog.close(); importFromCSV(); }),
   );
 
   body.append(

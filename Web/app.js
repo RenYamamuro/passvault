@@ -1162,7 +1162,7 @@ function renderListView() {
         '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),
       el('div', { className: 'cta' }, [
         el('button', { className: 'push primary', onclick: () => hooks.importFromCSV?.() },
-           [icon('upload', 16), '他のアプリから取り込む']),
+           [icon('download', 16), '他のアプリから取り込む']),
         el('button', { className: 'push', onclick: openNewItemMenu }, [icon('plus', 16), '最初の項目を追加']),
       ]),
       el('span', { className: 'sub small', textContent:

@@ -212,6 +212,16 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .tip { font-size: var(--fs-2); color: var(--text-2); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
 .error { color: var(--danger); font-size: var(--fs-3); text-align: left; margin: 8px 2px; }
 
+/* スクロールバー。標準のままだと、特に暗い配色で太く白く浮いていた。 */
+* { scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong); border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); background-clip: content-box; }
+
 /* ---------- 全体の骨格 ---------- */
 
 #app { display: none; height: 100vh; grid-template-rows: auto 1fr; }
@@ -328,6 +338,8 @@ textarea.field { resize: vertical; line-height: 1.6; }
 }
 
 .item-open {
+  /* 副題のある行とない行で高さが違い、一覧の律動が乱れていた */
+  min-height: 64px;
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
   padding: 12px 14px; border: none; background: none; text-align: left; color: var(--text);
 }
@@ -398,6 +410,15 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .revealable { position: relative; }
 .revealable .field { padding-right: 46px; }
 .revealable .reveal { position: absolute; right: 5px; top: 5px; }
+/* 設定の「押すと何かが始まる」行 */
+.g-row.action { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.g-ico {
+  display: grid; place-items: center; flex: none;
+  width: 28px; height: 28px; border-radius: var(--r-small);
+  background: var(--selected); color: var(--accent, var(--accent-fallback));
+}
+.g-row.action .chev { color: var(--text-3); display: grid; }
+.g-row.action:hover .chev { color: var(--text-2); }
 .g-sub { font-size: var(--fs-2); color: var(--text-2); line-height: 1.5; margin-top: 2px; max-width: 360px; }
 
 /* ---------- 詳細 ---------- */
@@ -543,8 +564,30 @@ button.g-row:hover { background: var(--hover); }
 .pill:hover { background: var(--hover); }
 
 input[type=range] { accent-color: var(--accent, var(--accent-fallback)); width: 100%; }
-input[type=checkbox] { accent-color: var(--accent, var(--accent-fallback)); width: 15px; height: 15px; }
-select.field { padding: 8px 12px; }
+/* 標準のチェックボックスは、磨いた周りから浮いていた。スイッチにする。 */
+input[type=checkbox] {
+  -webkit-appearance: none; appearance: none;
+  position: relative; flex: none; margin: 0;
+  width: 42px; height: 26px; border-radius: 999px;
+  background: var(--hairline-strong);
+}
+input[type=checkbox]::after {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 22px; height: 22px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .28);
+}
+input[type=checkbox]:checked { background: var(--accent, var(--accent-fallback)); }
+input[type=checkbox]:checked::after { transform: translateX(16px); }
+@media (prefers-reduced-motion: no-preference) {
+  input[type=checkbox] { transition: background-color .18s var(--ease); }
+  input[type=checkbox]::after { transition: transform .18s var(--ease); }
+}
+select.field {
+  -webkit-appearance: none; appearance: none;
+  padding: 8px 32px 8px 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 9.5 5-5 5 5M7 14.5l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 14px;
+}
 
 #toast {
   position: fixed; left: 50%; bottom: 32px; transform: translateX(-50%) translateY(8px);
@@ -698,7 +741,7 @@ select.field { padding: 8px 12px; }
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "6c2867b6c9d2";</script>
+<script>window.PASSVAULT_BUILD = "a726715b9b2f";</script>
 <script>
 
 // ===== core.js =====
@@ -1634,6 +1677,7 @@ const STROKED = {
   // 乱数。「パスワード生成」に使う。火花の形は、いまは AI の機能に見えやすい。
   dice: '<rect x="4" y="4" width="16" height="16" rx="4"/><circle cx="9" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1.15" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.15" fill="currentColor" stroke="none"/><circle cx="9" cy="15" r="1.15" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.15" fill="currentColor" stroke="none"/>',
   sort: '<path d="M7 5v14M7 19l-3-3M7 19l3-3M17 19V5M17 5l-3 3M17 5l3 3"/>',
+  chevron: '<path d="m9 5.5 6.5 6.5L9 18.5"/>',
 };
 
 // 塗りで描くもの（線画だと意味が伝わりにくいもの）
@@ -2847,7 +2891,7 @@ function renderListView() {
         '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),
       el('div', { className: 'cta' }, [
         el('button', { className: 'push primary', onclick: () => hooks.importFromCSV?.() },
-           [icon('upload', 16), '他のアプリから取り込む']),
+           [icon('download', 16), '他のアプリから取り込む']),
         el('button', { className: 'push', onclick: openNewItemMenu }, [icon('plus', 16), '最初の項目を追加']),
       ]),
       el('span', { className: 'sub small', textContent:
@@ -3701,12 +3745,25 @@ hooks.openGenerator = function (onUse) {
 // 設定
 // ============================================================
 
+/// 設定の「押すと何かが始まる」行。アイコン・題名・右の矢印。
+/// 青いリンクが縦に並ぶだけだと、どれが操作でどれが表示なのか、読まないと分からなかった。
+function actionRow(iconName, label, onclick) {
+  return el('button', { className: 'g-row action', onclick }, [
+    el('span', { className: 'g-ico', 'aria-hidden': 'true' }, [icon(iconName, 16)]),
+    el('span', { className: 'grow', textContent: label }),
+    el('span', { className: 'chev', 'aria-hidden': 'true' }, [icon('chevron', 14)]),
+  ]);
+}
+
 hooks.openSettings = function () {
   const dialog = makeDialog('設定', null);
   const body = dialog.querySelector('.dlg-body');
 
-  const awaySwitch = el('input', { type: 'checkbox', checked: settings.lockWhenAway,
-    onchange: event => { settings.lockWhenAway = event.target.checked; } });
+  const awaySwitch = el('input', {
+    type: 'checkbox', role: 'switch', 'aria-label': '別のタブへ移ったら施錠',
+    checked: settings.lockWhenAway,
+    onchange: event => { settings.lockWhenAway = event.target.checked; },
+  });
 
   const lockSelect = el('select', { className: 'field', style: 'width:auto',
     onchange: event => { settings.autoLockMinutes = Number(event.target.value); } });
@@ -3720,8 +3777,7 @@ hooks.openSettings = function () {
     el('div', { className: 'g-title', textContent: 'セキュリティ' }),
     el('div', { className: 'group' }, [
       el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),
-      el('button', { className: 'g-row', style: 'color:var(--accent)',
-        textContent: 'マスターパスワードを変更…', onclick: () => { dialog.close(); openPasswordChange(); } }),
+      actionRow('key', 'マスターパスワードを変更', () => { dialog.close(); openPasswordChange(); }),
       el('div', { className: 'g-row between' }, [
         el('div', {}, [
           el('div', { textContent: '別のタブへ移ったら施錠' }),
@@ -3730,8 +3786,7 @@ hooks.openSettings = function () {
         ]),
         awaySwitch,
       ]),
-      el('button', { className: 'g-row', style: 'color:var(--accent)',
-        textContent: '緊急用シートを作る…', onclick: () => { dialog.close(); openEmergencyKit(); } }),
+      actionRow('note', '緊急用シートを作る', () => { dialog.close(); openEmergencyKit(); }),
     ]),
     el('div', { className: 'g-foot', textContent:
       'マスターパスワードを忘れると中身は永久に取り出せません。復旧の窓口はありません。'
@@ -3752,17 +3807,13 @@ hooks.openSettings = function () {
     ]),
   ];
   if (!onFile) {
-    fileRows.push(el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '同期用に書き出す…',
-      onclick: () => downloadVault({ forSync: true }) }));
+    fileRows.push(actionRow('upload', '同期用に書き出す', () => downloadVault({ forSync: true })));
   }
+  // 書き出す＝出ていく向き（upload）、取り込む＝入ってくる向き（download）で揃える
   fileRows.push(
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '保管庫を書き出す（バックアップ）', onclick: () => downloadVault() }),
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '別の保管庫を取り込む…', onclick: () => { dialog.close(); importFromFile(); } }),
-    el('button', { className: 'g-row', style: 'color:var(--accent)',
-      textContent: '他のアプリから取り込む（CSV）…', onclick: () => { dialog.close(); importFromCSV(); } }),
+    actionRow('upload', '保管庫を書き出す（バックアップ）', () => downloadVault()),
+    actionRow('download', '別の保管庫を取り込む', () => { dialog.close(); importFromFile(); }),
+    actionRow('download', '他のアプリから取り込む（CSV）', () => { dialog.close(); importFromCSV(); }),
   );
 
   body.append(
