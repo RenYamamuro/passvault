@@ -732,6 +732,179 @@ appState.fileHandle = null;
 appState.fileMtime = null;
 
 // ============================================================
+section('使い勝手の見直し');
+// ============================================================
+// UI/UX の調査で見つけたものを、後から壊れても気づけるよう固定する。
+const savedAway = localStorage.getItem('passvault.lockWhenAway');
+const savedSort = localStorage.getItem('passvault.sort');
+const realAsk = App.hooks.askConfirm;
+const realImport = App.hooks.importFromCSV;
+
+try {
+  // --- 離席施錠は既定でオフ ---
+  // 既定で有効にしたところ、「コピー → 別のタブで貼り付け → 戻る」の途中で
+  // 必ず施錠が走り、戻るたびにマスターパスワードを打ち直す羽目になった。
+  localStorage.removeItem('passvault.lockWhenAway');
+  check('離席施錠は既定でオフ', App.settings.lockWhenAway === false);
+  App.settings.lockWhenAway = true;
+  check('オンにすればオンになる', App.settings.lockWhenAway === true);
+
+  // --- 文字欄の既定属性 ---
+  // 付けないと iPhone でユーザー名の頭文字が大文字になり、URL や OTP の秘密鍵が自動修正される
+  for (const [label, node] of [
+    ['文字', App.el('input', { type: 'text' })],
+    ['パスワード', App.el('input', { type: 'password' })],
+    ['検索', App.el('input', { type: 'search' })],
+    ['複数行', App.el('textarea')],
+  ]) {
+    check(`${label}欄は大文字化・自動修正・スペルチェック・自動補完をしない`,
+          node.getAttribute('autocapitalize') === 'off'
+          && node.getAttribute('autocorrect') === 'off'
+          && node.getAttribute('spellcheck') === 'false'
+          && node.getAttribute('autocomplete') === 'off');
+  }
+  check('チェック欄には付けない', !App.el('input', { type: 'checkbox' }).hasAttribute('autocapitalize'));
+  check('呼び出し側で上書きできる',
+        App.el('input', { type: 'text', autocapitalize: 'words' }).getAttribute('autocapitalize') === 'words');
+  check('role と tabindex は属性として付く',
+        App.el('div', { role: 'status', tabindex: '-1' }).getAttribute('role') === 'status'
+        && App.el('div', { tabindex: '-1' }).getAttribute('tabindex') === '-1');
+
+  // --- 編集のキャンセル ---
+  const draftItem = makeLogin('元の題', 'pw');
+  App.state.items = [draftItem];
+  let asked = 0, answer = false;
+  App.hooks.askConfirm = async () => { asked++; return answer; };
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const openDialog = () => document.querySelector('dialog[open]');
+  const cancelButton = () => openDialog().querySelector('.dlg-head button');
+  const typeTitle = value => {
+    const input = openDialog().querySelector('.dlg-body input');
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  App.hooks.openEditor(draftItem);
+  const heading = openDialog().querySelector('h2');
+  check('ダイアログに名前が付く（読み上げ用）',
+        openDialog().getAttribute('aria-labelledby') === heading.id && heading.textContent === '編集');
+
+  cancelButton().click();
+  await wait(30);
+  check('変更が無ければ確認なしで閉じる', !openDialog() && asked === 0);
+
+  App.hooks.openEditor(draftItem);
+  typeTitle('書き換えた');
+  cancelButton().click();
+  await wait(30);
+  check('変更があれば確認が入る', asked === 1);
+  check('「いいえ」なら閉じない（書きかけが残る）', !!openDialog());
+
+  // Esc（cancel イベント）でも同じ。止められなければ書きかけが黙って消える。
+  const escape = new Event('cancel', { cancelable: true });
+  openDialog().dispatchEvent(escape);
+  await wait(30);
+  check('Esc でも閉じさせず、確認を挟む', escape.defaultPrevented === true && asked === 2 && !!openDialog());
+
+  answer = true;
+  cancelButton().click();
+  await wait(30);
+  check('「はい」なら閉じる', !openDialog());
+  check('閉じたあと自動施錠の停止が残らない', App.state.holds === 0);
+  check('元の項目は書き換わらない', draftItem.title === '元の題');
+
+  // 打って、元に戻したら「変更なし」に戻る
+  asked = 0;
+  App.hooks.openEditor(draftItem);
+  typeTitle('別の題'); typeTitle('元の題');
+  cancelButton().click();
+  await wait(30);
+  check('元に戻せば変更なしとみなす', !openDialog() && asked === 0);
+  App.hooks.askConfirm = realAsk;
+
+  // --- 一覧の見え方 ---
+  App.state.header = V.makeHeader(1000);
+  App.state.key = await V.deriveKey('ux-pass', App.state.header);
+  const old = makeLogin('Apple', 'a1');
+  old.updatedAt = '2026-01-01T00:00:00Z';
+  const recent = makeLogin('Banana', 'b2');
+  recent.updatedAt = '2026-06-01T00:00:00Z';
+  App.state.items = [recent, old];
+  App.state.deletions = [];
+  App.state.findings = [];
+  App.state.selection = { kind: 'all' };
+  App.state.search = '';
+  App.state.view = 'list';
+  App.state.cursor = -1;
+  const rowTitles = () => [...document.querySelectorAll('#main .item-row .t')].map(node => node.textContent);
+
+  localStorage.removeItem('passvault.sort');
+  App.render();
+  check('並び順の既定は名前順', JSON.stringify(rowTitles()) === JSON.stringify(['Apple', 'Banana']));
+  App.settings.sort = 'recent';
+  App.render();
+  check('更新が新しい順に切り替えられる', JSON.stringify(rowTitles()) === JSON.stringify(['Banana', 'Apple']));
+  localStorage.setItem('passvault.sort', 'でたらめ');
+  check('保存された値が壊れていても名前順に戻る', App.settings.sort === 'name');
+
+  // --- 読み上げ用の目印 ---
+  check('検索欄に名前がある', document.getElementById('search').getAttribute('aria-label') === '検索');
+  const toastNode = document.getElementById('toast');
+  check('「コピーしました」などが読み上げられる（status / aria-live）',
+        toastNode.getAttribute('role') === 'status' && toastNode.getAttribute('aria-live') === 'polite');
+  check('主な領域に目印がある',
+        document.getElementById('main').getAttribute('role') === 'main'
+        && document.getElementById('bar').getAttribute('role') === 'banner');
+  const chipsNow = [...document.querySelectorAll('.chip')];
+  check('選択中の札が伝わる（aria-pressed）',
+        chipsNow[0].getAttribute('aria-pressed') === 'true'
+        && chipsNow.slice(1).every(chip => chip.getAttribute('aria-pressed') === 'false'));
+  check('コピー釦は Tab の停止点にしない（行ごとに 1 つに保つ）',
+        [...document.querySelectorAll('.quick')].every(node => node.getAttribute('tabindex') === '-1'));
+  check('コピー釦には、どの項目か分かる名前がある',
+        document.querySelector('.quick').getAttribute('aria-label').endsWith('のパスワードをコピー'));
+
+  // --- フォーカスの扱い ---
+  App.openItem(old.id);
+  check('詳細を開いたら、見出しへフォーカスが移る',
+        document.activeElement === document.querySelector('#main h1'));
+  App.showList();
+  check('一覧へ戻ったら、開いていた行へフォーカスが戻る',
+        document.activeElement === document.querySelector(`.item-row[data-id="${old.id}"] .item-open`));
+
+  // --- 初めて開いたとき ---
+  App.state.items = [];
+  App.state.selection = { kind: 'all' };
+  App.render();
+  check('空の保管庫では、取り込みと追加の入口を出す',
+        !!document.querySelector('.empty.first') && document.querySelectorAll('.empty .cta .push').length === 2);
+  check('空の保管庫に「すべて 0」の札だけを出さない', document.querySelectorAll('.chip').length === 0);
+  let importCalled = false;
+  App.hooks.importFromCSV = () => { importCalled = true; };
+  document.querySelector('.empty .cta .push.primary').click();
+  check('主な入口は CSV の取り込みに繋がる', importCalled === true);
+  App.state.items = [makeLogin('だけ', 'x')];
+  App.state.selection = { kind: 'category', value: 'creditCard' };
+  App.render();
+  check('絞った先が空なら、初回の案内ではなく「この区分には何もありません」と言う',
+        !document.querySelector('.empty.first'));
+} finally {
+  App.hooks.askConfirm = realAsk;
+  App.hooks.importFromCSV = realImport;
+  if (savedAway === null) localStorage.removeItem('passvault.lockWhenAway');
+  else localStorage.setItem('passvault.lockWhenAway', savedAway);
+  if (savedSort === null) localStorage.removeItem('passvault.sort');
+  else localStorage.setItem('passvault.sort', savedSort);
+  for (const open of document.querySelectorAll('dialog[open]')) open.close();
+  App.state.key = null;
+  App.state.header = null;
+  App.state.items = [];
+  App.state.selection = { kind: 'all' };
+  App.state.view = 'list';
+  App.state.selectedId = null;
+}
+
+// ============================================================
 section('CSV の取り込み');
 // ============================================================
 // ここは保管庫の中身に直接なる。引用符の中のカンマや改行を取りこぼすと、

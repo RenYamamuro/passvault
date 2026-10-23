@@ -44,10 +44,21 @@ export const settings = {
   set autoLockMinutes(value) {
     localStorage.setItem('passvault.autoLockMinutes', String(value));
   },
-  /// 別のタブや別のアプリへ移った時点で施錠する。
-  /// 席を立つときに閉じ忘れる、が一番ありがちな漏れ方なので既定で有効。
+  /// 一覧の並び順。name（名前順）| recent（更新が新しい順）
+  get sort() {
+    return localStorage.getItem('passvault.sort') === 'recent' ? 'recent' : 'name';
+  },
+  set sort(value) {
+    localStorage.setItem('passvault.sort', value === 'recent' ? 'recent' : 'name');
+  },
+  /// 別のタブや別のアプリへ移った時点で施錠する。**既定はオフ。**
+  ///
+  /// 最初は既定で有効にしていたが、パスワード管理の主な使い方は
+  /// 「コピー → ログイン画面のタブへ → 貼り付け → 戻る」で、
+  /// この途中で必ず施錠が走り、戻るたびにマスターパスワードを打ち直すことになった。
+  /// 席を立つ場合への備えは、時間で施錠する自動ロックがすでに担っている。
   get lockWhenAway() {
-    return localStorage.getItem('passvault.lockWhenAway') !== 'off';
+    return localStorage.getItem('passvault.lockWhenAway') === 'on';
   },
   set lockWhenAway(value) {
     localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
@@ -59,14 +70,37 @@ export const settings = {
 // ============================================================
 
 export const $ = selector => document.querySelector(selector);
+
+// 属性としてしか効かない名前。プロパティに代入しても、黙って何も起きない
+// （autocorrect は Safari にしかプロパティが無く、他では代入が無視される）。
+const ATTRIBUTE_ONLY = new Set(['autocapitalize', 'autocorrect', 'inputmode', 'enterkeyhint',
+                                'role', 'tabindex']);
+const TEXT_LIKE = new Set(['text', 'password', 'search', 'email', 'url', 'tel', '']);
+
+/// 文字を打つ欄の既定。**秘密を打つ欄なので、全部オフから始める。**
+///
+/// 付けないと iPhone ではユーザー名の頭文字が勝手に大文字になり、
+/// URL や OTP の秘密鍵が自動修正され、打った文字が予測変換の学習にも回る。
+/// 欄ごとに付けると必ず付け忘れが出るので、要素の作り方そのものに持たせる。
+/// 変えたい欄は、呼ぶときに props で上書きする。
+function applyEntryDefaults(node) {
+  const isTextArea = node.tagName === 'TEXTAREA';
+  if (!isTextArea && !(node.tagName === 'INPUT' && TEXT_LIKE.has(node.getAttribute('type') ?? ''))) return;
+  const defaults = { autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off' };
+  for (const [name, value] of Object.entries(defaults)) {
+    if (!node.hasAttribute(name)) node.setAttribute(name, value);
+  }
+}
+
 export const el = (tag, props = {}, children = []) => {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
     // aria-* や data-* のようにハイフンを含む名前は、プロパティとしては設定できない。
     // Object.assign だと黙って無視され、読み上げには何も伝わらないまま気づけない。
-    if (key.includes('-')) node.setAttribute(key, value);
+    if (key.includes('-') || ATTRIBUTE_ONLY.has(key)) node.setAttribute(key, value);
     else node[key] = value;
   }
+  if (tag === 'input' || tag === 'textarea') applyEntryDefaults(node);
   for (const child of [].concat(children)) {
     if (child != null) node.append(child);
   }
@@ -563,6 +597,27 @@ function offerButton(card, button) {
   card.insertBefore(el('div', { style: 'height:8px' }), button.nextSibling);
 }
 
+/// パスワード欄に「表示」の切り替えを付ける。
+///
+/// 12 文字以上を伏せ字のまま打つのは、特にスマホでつらい。
+/// 打ち間違えに気づけず、作成時は間違ったまま保管庫の鍵になってしまう。
+function revealable(input) {
+  const button = el('button', {
+    type: 'button', className: 'iconbtn reveal', title: '表示',
+    'aria-label': 'パスワードを表示', 'aria-pressed': 'false',
+  }, [icon('eye', 17)]);
+  button.onclick = () => {
+    const show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    button.replaceChildren(icon(show ? 'eyeOff' : 'eye', 17));
+    button.setAttribute('aria-pressed', String(show));
+    button.setAttribute('aria-label', show ? 'パスワードを隠す' : 'パスワードを表示');
+    button.title = show ? '隠す' : '表示';
+    input.focus();
+  };
+  return el('div', { className: 'revealable' }, [input, button]);
+}
+
 function unlockCard() {
   const password = el('input', { className: 'field', type: 'password', placeholder: 'マスターパスワード' });
   const error = el('div', { className: 'error' });
@@ -572,7 +627,7 @@ function unlockCard() {
     el('div', { className: 'gate-mark' }, [icon('lock', 40)]),
     el('h1', { textContent: 'ロック中' }),
     el('p', { className: 'lead', textContent: state.fileName ?? '保管庫ファイルを選んでください。' }),
-    password, error, button,
+    revealable(password), error, button,
     el('div', { style: 'height:8px' }),
     el('button', { className: 'push', textContent: '別の保管庫ファイルを開く', onclick: pickVaultFile }),
     el('div', { style: 'height:8px' }),
@@ -729,7 +784,7 @@ function createCard() {
     el('div', { className: 'gate-mark' }, [icon('vault', 44)]),
     el('h1', { textContent: '保管庫をつくる' }),
     el('p', { className: 'lead', textContent: 'マスターパスワードだけがこの保管庫を開ける鍵です。どこにも保存されないので、忘れると中身は取り出せません。' }),
-    first, second,
+    revealable(first), revealable(second),
     el('div', { className: 'hints' }, [hintLength, hintMatch]),
     error, button,
     el('div', { style: 'height:8px' }),
@@ -796,9 +851,13 @@ function itemsFor(selection) {
 }
 
 function visibleItems() {
-  return itemsFor(state.selection)
-    .filter(item => V.matches(item, state.search))
-    .sort((a, b) => V.displayTitle(a).localeCompare(V.displayTitle(b), 'ja'));
+  const found = itemsFor(state.selection).filter(item => V.matches(item, state.search));
+  if (settings.sort === 'recent') {
+    // 同時刻なら名前順にして、並びがぶれないようにする
+    return found.sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+      || V.displayTitle(a).localeCompare(V.displayTitle(b), 'ja'));
+  }
+  return found.sort((a, b) => V.displayTitle(a).localeCompare(V.displayTitle(b), 'ja'));
 }
 
 const selectionTitle = selection => ({
@@ -814,7 +873,48 @@ const sameSelection = (a, b) => a.kind === b.kind && a.value === b.value;
 
 let lastShownItemId = null;
 
+const FOCUSABLE = 'button, a[href], input, select, textarea, summary';
+
+/// 作り直す前に、いまどこにフォーカスがあったかを控える。
+///
+/// 画面は要素ごと作り直すので、何もしないとフォーカスが消える。
+/// 「表示」を押した直後にキーボードの位置が失われ、また最初から Tab で辿り直す羽目になる。
+function focusSnapshot() {
+  const active = document.activeElement;
+  if (!active || active.closest('dialog')) return null;
+  for (const selector of ['#bar', '#main']) {
+    const container = $(selector);
+    if (container && container.contains(active)) {
+      return { selector, index: [...container.querySelectorAll(FOCUSABLE)].indexOf(active) };
+    }
+  }
+  return null;
+}
+
+function restoreFocus(snapshot) {
+  if (!snapshot || snapshot.index < 0) return;
+  [...$(snapshot.selector).querySelectorAll(FOCUSABLE)][snapshot.index]?.focus({ preventScroll: true });
+}
+
+/// 読み上げ用の目印。要素は 3 か所の HTML に書いてあるので、
+/// 食い違わないよう JS から一度だけ付ける（何度呼んでも同じ結果）。
+function markLandmarks() {
+  $('#bar')?.setAttribute('role', 'banner');
+  $('#main')?.setAttribute('role', 'main');
+  const toastNode = $('#toast');
+  if (toastNode) {
+    // 「コピーしました」などが読み上げられるようにする。無いと結果が音声に出ない。
+    toastNode.setAttribute('role', 'status');
+    toastNode.setAttribute('aria-live', 'polite');
+    toastNode.setAttribute('aria-atomic', 'true');
+  }
+}
+
+let lastScreen = '';
+
 export function render() {
+  markLandmarks();
+
   // 別の項目に移ったら、表示にしていた欄を伏せ字に戻す。
   // 解除したままだと、画面を人に見せたときに前の項目の中身まで出てしまう。
   if (state.selectedId !== lastShownItemId) {
@@ -835,9 +935,25 @@ export function render() {
     state.view = 'list';
   }
 
+  const snapshot = focusSnapshot();
   renderBar();
   if (state.view === 'detail') renderDetail();
   else renderListView();
+
+  // 同じ画面の描き直しなら、フォーカスを元の位置へ戻す。
+  // 画面が切り替わったときは、行き先の頭へ移す（戻ったときは開いていた行へ）。
+  const screen = `${state.view}:${state.view === 'detail' ? state.selectedId : ''}`;
+  if (screen === lastScreen) {
+    restoreFocus(snapshot);
+  } else if (!document.querySelector('dialog[open]')) {
+    if (state.view === 'detail') {
+      const heading = $('#main h1');
+      if (heading) { heading.tabIndex = -1; heading.focus({ preventScroll: true }); }
+    } else if (lastScreen.startsWith('detail')) {
+      $(`#main .item-row[data-id="${state.selectedId}"] .item-open`)?.focus({ preventScroll: true });
+    }
+  }
+  lastScreen = screen;
 }
 
 /// 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。
@@ -847,7 +963,7 @@ function renderBar() {
   const tools = (...extra) => el('div', { className: 'bar-tools' }, [
     ...extra,
     el('button', { className: 'iconbtn', title: 'パスワード生成',
-                   'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('wand')]),
+                   'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('dice')]),
     el('button', { className: 'iconbtn', title: '設定',
                    'aria-label': '設定', onclick: openSettings }, [icon('gear')]),
     el('button', { className: 'iconbtn', title: 'ロック',
@@ -869,7 +985,7 @@ function renderBar() {
 
   const search = el('input', {
     id: 'search', type: 'search', placeholder: '検索', value: state.search,
-    autocomplete: 'off', spellcheck: false,
+    'aria-label': '検索', enterkeyhint: 'search',
     oninput: event => {
       state.search = event.target.value;
       state.cursor = -1;
@@ -893,11 +1009,14 @@ function renderBar() {
 /// 絞り込みの札。縦のサイドバーをやめて横一列にした。
 /// 中身のある区分しか出さない。空の器が並んでも選ぶ理由がない。
 function renderChips() {
+  // 何も入っていない保管庫に「すべて 0」だけ出しても、押す理由がない
+  if (!activeItems().length && !trashedItems().length) return null;
   const chips = [];
   const add = (selection, label, extra) => {
     const selected = sameSelection(selection, state.selection);
     chips.push(el('button', {
       className: `chip${selected ? ' sel' : ''}`,
+      'aria-pressed': String(selected),
       onclick: () => {
         state.selection = selection;
         state.cursor = -1;
@@ -924,7 +1043,7 @@ function renderChips() {
     add(state.selection, selectionTitle(state.selection), n(itemsFor(state.selection).length));
   }
 
-  return el('div', { className: 'chips' }, chips);
+  return el('div', { className: 'chips', role: 'group', 'aria-label': '絞り込み' }, chips);
 }
 
 function renderListView() {
@@ -951,15 +1070,40 @@ function renderListView() {
 
   if (items.length) {
     parts.push(el('div', { className: 'list' }, items.map((item, index) => itemRow(item, index))));
-    parts.push(el('div', { className: 'listfoot', textContent: `${items.length} 件` }));
+    parts.push(el('div', { className: 'listfoot' }, [
+      // 並び順を選べるのは 2 件以上あるときだけ
+      items.length > 1
+        ? el('button', {
+            className: 'linkbtn', title: '並び順を切り替える',
+            onclick: () => {
+              settings.sort = settings.sort === 'recent' ? 'name' : 'recent';
+              renderListView();
+            },
+          }, [icon('sort', 14), settings.sort === 'recent' ? '更新が新しい順' : '名前順'])
+        : el('span'),
+      el('span', { textContent: `${items.length} 件` }),
+    ]));
+  } else if (!state.search && !isTrash && !activeItems().length) {
+    // 初めて開いたとき。ここが移行の入口なので、受け身に「＋から」と言うだけにしない。
+    parts.push(el('div', { className: 'empty first' }, [
+      el('span', { className: 'big' }, [icon('vault', 44)]),
+      el('span', { className: 'lead', textContent: 'まだ何も入っていません' }),
+      el('span', { className: 'sub', textContent:
+        '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),
+      el('div', { className: 'cta' }, [
+        el('button', { className: 'push primary', onclick: () => hooks.importFromCSV?.() },
+           [icon('upload', 16), '他のアプリから取り込む']),
+        el('button', { className: 'push', onclick: openNewItemMenu }, [icon('plus', 16), '最初の項目を追加']),
+      ]),
+      el('span', { className: 'sub small', textContent:
+        'マスターパスワードの控えは、設定の「緊急用シート」で紙に残せます。' }),
+    ]));
   } else {
     parts.push(el('div', { className: 'empty' }, [
       el('span', { className: 'big' }, [icon(isTrash ? 'trash' : (state.search ? 'search' : 'inbox'), 38)]),
       el('span', { className: 'lead', textContent:
         isTrash ? 'ゴミ箱は空です'
-                : (state.search ? `「${state.search}」に一致するものはありません` : 'まだ何もありません') }),
-      state.search || isTrash ? null
-        : el('span', { textContent: '右上の ＋ から追加できます。' }),
+                : (state.search ? `「${state.search}」に一致するものはありません` : 'この区分には何もありません') }),
     ]));
   }
 
@@ -1022,6 +1166,7 @@ function itemRow(item, index) {
 
   const row = el('div', {
     className: `item-row${index === state.cursor ? ' cur' : ''}`,
+    'data-id': item.id,
   }, [
     el('button', {
       className: 'item-open', onclick: () => openItem(item.id),
@@ -1040,7 +1185,10 @@ function itemRow(item, index) {
   const password = V.primaryPassword(item);
   if (password && !item.trashedAt) {
     row.append(el('button', {
-      className: 'quick', title: 'パスワードをコピー', 'aria-label': `${V.displayTitle(item)} のパスワードをコピー`,
+      // Tab の停止点は行ごとに 1 つにする（50 件なら 100 回の Tab になるため）。
+      // キーボードでは ↑↓ で行を選んで ⌘C が同じ働きをする。
+      className: 'quick', tabindex: '-1', title: 'パスワードをコピー',
+      'aria-label': `${V.displayTitle(item)} のパスワードをコピー`,
       onclick: event => { event.stopPropagation(); copySecret(password, 'パスワード'); },
     }, [icon('copy', 15)]));
   }

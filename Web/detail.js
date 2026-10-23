@@ -293,6 +293,9 @@ function openEditor(original, isNew = false) {
   const draft = structuredClone(original);
   const category = V.CATEGORIES[draft.category];
   let tagText = draft.tags.join(', ');
+  // 開いた時点の姿。これと違えば「書きかけがある」。
+  const snapshot = () => JSON.stringify([draft, tagText]);
+  const opened = snapshot();
 
   const dialog = makeDialog(isNew ? `新規${category.name}` : '編集', async () => {
     const title = draft.title.trim();
@@ -319,6 +322,8 @@ function openEditor(original, isNew = false) {
     render();
     return true;
   });
+
+  dialog.isDirty = () => snapshot() !== opened;
 
   const body = dialog.querySelector('.dlg-body');
 
@@ -441,7 +446,7 @@ function editorField(draft, field, index, refresh) {
         input.value = generated;
         state.revealed.add(key);
         refresh();
-      }) }, [icon('wand')]));
+      }) }, [icon('dice')]));
   }
 
   const header = el('div', { className: 'inline' }, [
@@ -485,7 +490,7 @@ hooks.openGenerator = function (onUse) {
     el('div', { className: 'g-row' }, [output, strength]),
     el('div', { className: 'g-row' }, [
       el('button', { className: 'push', style: 'width:auto', onclick: regenerate },
-        [icon('wand', 14), ' 作り直す']),
+        [icon('dice', 14), ' 作り直す']),
     ]),
   ]));
 
@@ -545,7 +550,11 @@ hooks.openSettings = function () {
       el('button', { className: 'g-row', style: 'color:var(--accent)',
         textContent: 'マスターパスワードを変更…', onclick: () => { dialog.close(); openPasswordChange(); } }),
       el('div', { className: 'g-row between' }, [
-        el('span', { textContent: '画面を離れたら施錠' }),
+        el('div', {}, [
+          el('div', { textContent: '別のタブへ移ったら施錠' }),
+          el('div', { className: 'g-sub', textContent:
+            '切り替えのたびにマスターパスワードが要るので、ふだんはオフのままが楽です。' }),
+        ]),
         awaySwitch,
       ]),
       el('button', { className: 'g-row', style: 'color:var(--accent)',
@@ -1170,22 +1179,47 @@ hooks.askText = function (title, label, { placeholder = '', initial = '', confir
   });
 };
 
+// app.js 側（空の状態の案内）と検証から呼べるようにする
+hooks.importFromCSV = importFromCSV;
+hooks.openEditor = openEditor;
+
 // ============================================================
 // ダイアログの枠
 // ============================================================
 
+let dialogCount = 0;
+
 function makeDialog(title, onConfirm, confirmLabel = '保存') {
-  const dialog = el('dialog');
+  // 読み上げに名前を伝える。無いと「ダイアログ」とだけ告げられて何の画面か分からない。
+  const titleId = `dlg-title-${++dialogCount}`;
+  const dialog = el('dialog', { 'aria-labelledby': titleId });
   const confirmButton = onConfirm
     ? el('button', { textContent: confirmLabel, onclick: async () => {
         if (await onConfirm() !== false) dialog.close();
       } })
     : el('span', { style: 'width:44px' });
 
+  // 呼び出し側が isDirty を差し込むと、変更を抱えたまま閉じるときに確認が入る。
+  // 取り消しの押し間違い・Esc・外側の誤操作で、書きかけが黙って消えるのを防ぐ。
+  let asking = false;
+  const requestClose = async () => {
+    if (!dialog.isDirty?.()) { dialog.close(); return; }
+    if (asking) return;
+    asking = true;
+    try {
+      const discard = await hooks.askConfirm('変更を破棄しますか',
+        '保存していない変更があります。破棄すると元に戻せません。',
+        { confirmLabel: '破棄する', destructive: true });
+      if (discard) dialog.close();
+    } finally {
+      asking = false;
+    }
+  };
+
   dialog.append(
     el('div', { className: 'dlg-head' }, [
-      el('button', { textContent: onConfirm ? 'キャンセル' : '閉じる', onclick: () => dialog.close() }),
-      el('h2', { textContent: title }),
+      el('button', { textContent: onConfirm ? 'キャンセル' : '閉じる', onclick: requestClose }),
+      el('h2', { id: titleId, textContent: title }),
       confirmButton,
     ]),
     el('div', { className: 'dlg-body' }),
@@ -1211,8 +1245,12 @@ function makeDialog(title, onConfirm, confirmLabel = '保存') {
   dialog.close = (...args) => {
     try { nativeClose(...args); } finally { finish(); }
   };
-  // Esc で閉じられた場合の保険（発火する環境ではこちらが働く）
-  dialog.addEventListener('cancel', finish);
+  // Esc で閉じられた場合の保険（発火する環境ではこちらが働く）。
+  // 変更を抱えているときは閉じさせず、確認を挟む。
+  dialog.addEventListener('cancel', event => {
+    if (dialog.isDirty?.()) { event.preventDefault(); requestClose(); return; }
+    finish();
+  });
   dialog.addEventListener('close', finish);
 
   document.body.append(dialog);

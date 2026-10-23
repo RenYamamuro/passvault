@@ -29,8 +29,10 @@
   --sunken: #eeeef1;
 
   --text: #16161a;
-  --text-2: rgba(22, 22, 26, 0.56);
-  --text-3: rgba(22, 22, 26, 0.36);
+  /* text-2 は読ませる文字（4.5:1 以上）。text-3 はアイコンや飾り（3:1 以上）。
+     text-3 の文字は読ませない。薄い文字は 2.3:1 しか無く、実際に読みづらかった。 */
+  --text-2: rgba(22, 22, 26, 0.66);
+  --text-3: rgba(22, 22, 26, 0.52);
   --hairline: rgba(22, 22, 26, 0.09);
   --hairline-strong: rgba(22, 22, 26, 0.15);
   --hover: rgba(22, 22, 26, 0.045);
@@ -66,8 +68,8 @@
     --sunken: #191a1d;
 
     --text: rgba(255, 255, 255, 0.92);
-    --text-2: rgba(255, 255, 255, 0.54);
-    --text-3: rgba(255, 255, 255, 0.33);
+    --text-2: rgba(255, 255, 255, 0.62);
+    --text-3: rgba(255, 255, 255, 0.44);
     --hairline: rgba(255, 255, 255, 0.09);
     --hairline-strong: rgba(255, 255, 255, 0.16);
     --hover: rgba(255, 255, 255, 0.055);
@@ -129,6 +131,9 @@ a { color: var(--accent, var(--accent-fallback)); text-underline-offset: 2px; }
   @keyframes view-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 }
 
+/* 見出しへ送ったフォーカスの輪は見せない（見出しは操作する場所ではない） */
+h1[tabindex="-1"]:focus-visible { outline: none; }
+
 :focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent, var(--accent-fallback)) 42%, transparent);
   outline-offset: 1px;
@@ -177,7 +182,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
 .hint { color: var(--text-2); font-size: 13px; display: flex; align-items: center; gap: 7px; }
 .hint .icon { color: var(--text-3); }
 .hint.ok, .hint.ok .icon { color: var(--ok); }
-.tip { font-size: 12px; color: var(--text-3); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
+.tip { font-size: 12px; color: var(--text-2); margin: 16px 2px 0; text-align: left; line-height: 1.6; }
 .error { color: var(--danger); font-size: 13px; text-align: left; margin: 8px 2px; }
 
 /* ---------- 全体の骨格 ---------- */
@@ -210,7 +215,8 @@ textarea.field { resize: vertical; line-height: 1.6; }
 #search {
   width: 100%; max-width: 520px;
   padding: 9px 14px 9px 36px; border-radius: 10px;
-  border: 0.5px solid transparent; background: var(--sunken);
+  /* 暗い配色では地が帯とほぼ同じ明るさで、枠が無いと入力欄に見えない */
+  border: 0.5px solid var(--hairline-strong); background: var(--sunken);
   font-size: 14px;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='10.7' cy='10.7' r='6.7'/%3E%3Cpath d='m15.6 15.6 4.4 4.4'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: 12px center; background-size: 15px;
@@ -260,7 +266,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
   color: var(--text-2); font-size: 13px;
 }
 .chip:hover { background: var(--hover); color: var(--text); }
-.chip .n { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.chip .n { font-size: 11.5px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .chip .n.warn { color: var(--warn); font-weight: 600; }
 .chip.sel {
   background: var(--selected); border-color: transparent;
@@ -330,16 +336,33 @@ textarea.field { resize: vertical; line-height: 1.6; }
 }
 
 .listfoot {
-  font-size: 11.5px; color: var(--text-3); text-align: right;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; color: var(--text-2);
   margin-top: 10px; font-variant-numeric: tabular-nums;
 }
 
 .empty {
-  padding: 72px 28px; text-align: center; color: var(--text-3);
+  padding: 72px 28px; text-align: center; color: var(--text-2);
   display: grid; gap: 8px; justify-items: center;
 }
 .empty .big { color: var(--text-3); opacity: .4; }
 .empty .lead { font-size: 14px; color: var(--text-2); }
+
+/* 初めて開いたとき。移行の入口なので、文字だけにせず押せるものを置く */
+.empty.first { padding-top: 56px; gap: 10px; }
+.empty.first .big { color: var(--accent, var(--accent-fallback)); opacity: 1; }
+.empty.first .lead { font-size: 18px; font-weight: 600; color: var(--text); }
+.empty.first .sub { max-width: 340px; font-size: 13.5px; line-height: 1.6; }
+.empty.first .sub.small { font-size: 12px; margin-top: 8px; }
+.empty .cta { display: grid; gap: 8px; width: min(100%, 300px); margin-top: 8px; }
+.empty .cta .push { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+.empty .cta .push + .push { margin-top: 0; }
+
+/* パスワード欄の右端に置く「表示」 */
+.revealable { position: relative; }
+.revealable .field { padding-right: 46px; }
+.revealable .reveal { position: absolute; right: 5px; top: 5px; }
+.g-sub { font-size: 12px; color: var(--text-2); line-height: 1.5; margin-top: 2px; max-width: 360px; }
 
 /* ---------- 詳細 ---------- */
 
@@ -381,7 +404,7 @@ textarea.field { resize: vertical; line-height: 1.6; }
   letter-spacing: 0.01em;
 }
 @media (hover: hover) {
-  .row .iconbtn { opacity: .4; }
+  .row .iconbtn { opacity: .62; }
   .row:hover .iconbtn, .row .iconbtn:focus-visible { opacity: 1; }
 }
 
@@ -415,7 +438,7 @@ button.tag:hover .icon { color: currentColor; }
   border-radius: var(--r-medium); padding: 15px; margin-bottom: 14px;
   box-shadow: var(--shadow-raised); line-height: 1.65;
 }
-.meta { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.meta { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 
 .strength { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
 .bar { flex: 1; height: 5px; border-radius: 999px; background: var(--hairline); overflow: hidden; max-width: 180px; }
@@ -480,8 +503,8 @@ dialog::backdrop { background: rgba(0, 0, 0, .34); -webkit-backdrop-filter: blur
 button.g-row { width: 100%; border: none; background: none; text-align: left; color: var(--text); display: block; }
 button.g-row:hover { background: var(--hover); }
 .g-lab { display: block; font-size: 11px; color: var(--text-2); margin-bottom: 5px; letter-spacing: 0.04em; font-weight: 500; }
-.g-title { font-size: 11.5px; font-weight: 600; line-height: 1.4; color: var(--text-3); margin: 0 4px 6px; letter-spacing: 0.04em; }
-.g-foot { font-size: 12px; color: var(--text-3); margin: -10px 4px 16px; line-height: 1.6; }
+.g-title { font-size: 11.5px; font-weight: 600; line-height: 1.4; color: var(--text-2); margin: 0 4px 6px; letter-spacing: 0.04em; }
+.g-foot { font-size: 12px; color: var(--text-2); margin: -10px 4px 16px; line-height: 1.6; }
 .inline { display: flex; align-items: center; gap: 8px; }
 .inline .field { margin: 0; }
 .between { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -518,8 +541,6 @@ select.field { padding: 7px 11px; }
 
 @media (max-width: 720px) {
   #bar { padding: 10px 12px; gap: 8px; min-height: 58px; flex-wrap: wrap; }
-  /* 名前を落として検索に幅を譲る。狭いところで最優先なのは探すこと。 */
-  .brand span:not(.unsaved) { display: none; }
   .sheet { padding: 18px 14px 64px; }
   .detail-head .avatar { width: 50px; height: 50px; border-radius: 13px; }
   .detail-head h1 { font-size: 22px; }
@@ -561,7 +582,7 @@ select.field { padding: 7px 11px; }
   color: var(--danger); font-weight: 500;
   border-left: 3px solid var(--danger); padding-left: 10px;
 }
-.kit-foot { font-size: 11.5px; color: var(--text-3); margin-top: 22px; }
+.kit-foot { font-size: 11.5px; color: var(--text-2); margin-top: 22px; }
 
 @media print {
   /* 紙には中身だけを出す。背景の一覧が透けて出ると、
@@ -576,4 +597,39 @@ select.field { padding: 7px 11px; }
   .kit-blank { border-bottom-color: #000; }
   .kit-warn { color: #000; border-left-color: #000; }
   .kit p, .kit h3 { color: #333; }
+}
+
+/* ---------- 指で押す大きさ ---------- */
+/*
+ * 指で押す目安は 44px。帯のボタンと札が 31px で、押し間違いやすかった。
+ * 見た目の大きさは保ち、押せる範囲だけを広げられるところは広げる。
+ */
+
+@media (pointer: coarse), (max-width: 720px) {
+  .iconbtn { min-width: 44px; min-height: 44px; }
+  /* 行の中のボタンは、行の高さを増やさず外へはみ出させる */
+  .row .iconbtn { margin: -8px -6px; }
+  .backbtn { min-height: 44px; }
+  .dlg-head { padding: 6px 10px; }
+  .dlg-head button { min-height: 44px; min-width: 44px; padding: 4px 12px; }
+  .linkbtn { min-height: 44px; padding: 4px 10px; }
+  .field, select.field { min-height: 44px; }
+  .push { min-height: 44px; }
+
+  /* 札は見た目を保ち、押せる範囲だけ上下へ広げる */
+  .chips { gap: 8px; }
+  .chip { position: relative; min-height: 34px; }
+  .chip::after { content: ''; position: absolute; inset: -5px -2px; }
+
+  /* 上の帯は 2 段にする。1 段目に名前と道具、2 段目に検索。
+     44px の道具を 4 つ並べると検索欄が 110px 前後に潰れるため。
+     検索はこのアプリの主役なので、狭くしない。 */
+  #bar { flex-wrap: wrap; row-gap: 4px; padding: 8px 12px 12px; min-height: 0; }
+  .brand { order: 1; flex: 1; }
+  .bar-tools { order: 2; }
+  .searchwrap { order: 3; flex: 1 0 100%; }
+  #search { max-width: none; min-height: 44px; }
+  /* 詳細のときの帯は 1 段のまま（検索が無い） */
+  .backbtn { order: 0; }
+  .bar-title { order: 1; }
 }
