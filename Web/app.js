@@ -68,7 +68,36 @@ export const settings = {
   set lockWhenAway(value) {
     localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
   },
+  /// 表示。auto（端末の設定に従う）| light | dark
+  get theme() {
+    try {
+      const saved = localStorage.getItem('passvault.theme');
+      return saved === 'light' || saved === 'dark' ? saved : 'auto';
+    } catch { return 'auto'; }
+  },
+  set theme(value) {
+    try {
+      if (value === 'light' || value === 'dark') localStorage.setItem('passvault.theme', value);
+      else localStorage.removeItem('passvault.theme');
+    } catch { /* 覚えられなくても、いまの画面には当たる */ }
+  },
 };
+
+/// 表示を当てる。描画前の分は build.py が head で当てているので、ここは切り替えたときと起動時の後始末。
+///
+/// iPhone の時刻表示まわりの色（theme-color）は、端末の明暗で選ぶ 2 枚を置いてある。
+/// 固定にしたときは両方を選んだ側の色にしないと、端末が暗いときに明るい画面の上だけ黒くなる。
+const THEME_COLORS = { light: '#f4f3ef', dark: '#121417' };
+export function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
+  else delete root.dataset.theme;
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    const own = (meta.media ?? '').includes('dark') ? 'dark' : 'light';
+    meta.content = THEME_COLORS[theme === 'auto' ? own : theme];
+  }
+}
+applyTheme(settings.theme);
 
 // ============================================================
 // 小さな道具

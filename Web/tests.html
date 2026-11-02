@@ -1629,6 +1629,56 @@ section('Keystone の配色');
         shipped.includes('data:font/woff2;base64') && !shipped.includes('url("fonts/'));
 }
 
+// ============================================================
+section('表示の切り替え（自動・ライト・ダーク）');
+// ============================================================
+{
+  const css = await (await fetch('style.css', { cache: 'no-store' })).text();
+  const strip = text => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
+  const auto = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root:not\(\[data-theme="light"\]\) \{([^}]*)\}/)?.[1];
+  const forced = css.match(/:root\[data-theme="dark"\] \{([^}]*)\}/)?.[1];
+  check('暗い配色が 2 か所にある（自動・ダーク固定）', Boolean(auto && forced));
+  check('2 か所の暗い配色が食い違っていない', strip(auto ?? 'a') === strip(forced ?? 'b'));
+
+  const root = document.documentElement;
+  const before = App.settings.theme;
+  // 色は style.css にある。検証ページは読んでいないので、この節のあいだだけ読む。
+  const sheet = document.createElement('link');
+  sheet.rel = 'stylesheet'; sheet.href = 'style.css';
+  await new Promise(resolve => { sheet.onload = sheet.onerror = resolve; document.head.append(sheet); });
+  // 配信版と同じ 2 枚を置く（検証ページには無いので、無いまま見ると素通りする）
+  const metaTags = ['dark', 'light'].map(mode => {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color'; meta.media = `(prefers-color-scheme: ${mode})`;
+    document.head.append(meta);
+    return meta;
+  });
+  const win = () => getComputedStyle(root).getPropertyValue('--window').trim();
+  try {
+    App.settings.theme = 'dark'; App.applyTheme('dark');
+    check('ダークを選ぶと暗い地になる', win() === '#121417' && root.dataset.theme === 'dark');
+    check('ダークは覚えておく', localStorage.getItem('passvault.theme') === 'dark' && App.settings.theme === 'dark');
+    check('ダークのときは時刻表示まわりも暗い色',
+          metaTags.every(meta => meta.content === '#121417'));
+    App.settings.theme = 'light'; App.applyTheme('light');
+    check('ライトを選ぶと明るい地になる（端末が暗くても）', win() === '#f4f3ef' && root.dataset.theme === 'light');
+    App.settings.theme = 'auto'; App.applyTheme('auto');
+    check('自動に戻すと時刻表示まわりの色も端末の明暗ごとに戻る',
+          metaTags[0].content === '#121417' && metaTags[1].content === '#f4f3ef');
+    check('自動に戻すと印も保存も消える', !('theme' in root.dataset) && localStorage.getItem('passvault.theme') === null);
+    App.settings.theme = 'bogus';
+    check('知らない値は自動として扱う', App.settings.theme === 'auto');
+  } finally {
+    App.settings.theme = before; App.applyTheme(before);
+    metaTags.forEach(meta => meta.remove());
+    sheet.remove();
+  }
+  const shipped = await (await fetch('site/index.html', { cache: 'no-store' })).text();
+  check('配信版は描画前に表示を当てる（ちらつかない）',
+        shipped.indexOf("localStorage.getItem('passvault.theme')") > -1
+        && shipped.indexOf("localStorage.getItem('passvault.theme')") < shipped.indexOf('<style>'));
+}
+
 } catch (error) {
   lines.push(`\n<span class="fail">例外で停止: ${error.message}</span>`);
   out.innerHTML = lines.join('\n');

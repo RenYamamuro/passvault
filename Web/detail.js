@@ -6,7 +6,7 @@ import * as A from './audit.js';
 import * as D from './drive.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost, revealItem,
+  state, settings, applyTheme, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost, revealItem,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -603,7 +603,34 @@ hooks.openSettings = function () {
       selected: settings.autoLockMinutes === minutes }));
   }
 
+  // 表示の切り替え。押した瞬間に当てて、その場で見比べられるようにする。
+  const themeChoices = [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']];
+  const themeSeg = el('div', { className: 'seg', role: 'group', 'aria-label': '表示' });
+  for (const [value, label] of themeChoices) {
+    themeSeg.append(el('button', {
+      type: 'button', textContent: label, 'data-value': value,
+      'aria-pressed': String(settings.theme === value),
+      onclick: () => {
+        settings.theme = value;
+        applyTheme(value);
+        for (const button of themeSeg.children) {
+          button.setAttribute('aria-pressed', String(button.dataset.value === value));
+        }
+      },
+    }));
+  }
+
   body.append(
+    el('div', { className: 'g-title', textContent: '表示' }),
+    el('div', { className: 'group' }, [
+      el('div', { className: 'g-row between' }, [
+        el('div', {}, [
+          el('div', { textContent: '外観' }),
+          el('div', { className: 'g-sub', textContent: '自動は端末のライト・ダークの設定に合わせます。' }),
+        ]),
+        themeSeg,
+      ]),
+    ]),
     el('div', { className: 'g-title', textContent: 'セキュリティ' }),
     el('div', { className: 'group' }, [
       el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),

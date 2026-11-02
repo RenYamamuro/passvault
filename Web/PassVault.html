@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com; form-action 'none'; base-uri 'none'; object-src 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// 表示（ライト・ダーク）は描画前に当てる。あとから当てると一瞬ちらつく。
+(function () {
+  try {
+    var saved = localStorage.getItem('passvault.theme');
+    if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+  } catch (e) {}
+})();
+</script>
 <title>Keystone</title>
 <!--
   このファイルは Web/build.py が生成したものです。直接編集しないでください。
@@ -93,8 +102,12 @@
   --fs-7: 30px;   /* 大きな見出し（iOS の Large Title）。ホームと一覧の頭だけに使う */
 }
 
+/* 暗い配色。端末の設定に従う（自動）ときと、設定で「ダーク」を選んだときの 2 か所に同じ値を置く。
+   CSS では媒体の条件と属性の条件を 1 つの規則にまとめられないため。
+   2 つが食い違わないよう、tests.html が中身の一致を見張っている。 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --accent: #e8a73f;
     --accent-text: #1b1406;
     --accent-fallback: #e8a73f;
@@ -128,6 +141,41 @@
     --side-l: 66%;
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --accent: #e8a73f;
+  --accent-text: #1b1406;
+  --accent-fallback: #e8a73f;
+
+  /* 黒を持ち上げる。沈めきると輪郭が消えて階層が読めない。 */
+  /* アイコンと同じ、わずかに青みのある炭色 */
+  --window: #121417;
+  --bar: rgba(25, 27, 31, 0.78);
+  --content: #191b1f;
+  --raised: #22252a;
+  --sunken: #16181c;
+
+  --text: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.62);
+  --text-3: rgba(255, 255, 255, 0.44);
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.055);
+
+  --danger: #ff6b61;
+  --warn: #ff8f4d;
+  --ok: #41c777;
+
+  --shadow-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.58);
+
+  --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 20%, transparent);
+
+  --tile-bg-s: 40%;  --tile-bg-l: 24%;
+  --tile-fg-s: 85%;  --tile-fg-l: 80%;
+  --side-l: 66%;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -822,6 +870,21 @@ select.field {
   input, textarea, select { font-size: var(--fs-input); }
 }
 
+/* 三択の切り替え（表示: 自動・ライト・ダーク）。LIFT LOG と同じ形。 */
+.seg {
+  display: inline-flex; gap: 2px; padding: 2px; flex: none;
+  background: var(--sunken); border-radius: var(--r-small);
+}
+.seg button {
+  border: none; background: none; color: var(--text-2); white-space: nowrap;
+  font-size: var(--fs-3); padding: 4px 12px; border-radius: var(--r-small);
+  min-height: 32px;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--raised); color: var(--text); font-weight: 600;
+  box-shadow: var(--shadow-raised);
+}
+
 
 /* ===== theme-macos.css ===== */
 /* テーマ「macOS」
@@ -839,7 +902,7 @@ select.field {
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "25fda1a4e7da";</script>
+<script>window.PASSVAULT_BUILD = "ca501c0ae264";</script>
 <script>
 
 // ===== core.js =====
@@ -2087,7 +2150,36 @@ const settings = {
   set lockWhenAway(value) {
     localStorage.setItem('passvault.lockWhenAway', value ? 'on' : 'off');
   },
+  /// 表示。auto（端末の設定に従う）| light | dark
+  get theme() {
+    try {
+      const saved = localStorage.getItem('passvault.theme');
+      return saved === 'light' || saved === 'dark' ? saved : 'auto';
+    } catch { return 'auto'; }
+  },
+  set theme(value) {
+    try {
+      if (value === 'light' || value === 'dark') localStorage.setItem('passvault.theme', value);
+      else localStorage.removeItem('passvault.theme');
+    } catch { /* 覚えられなくても、いまの画面には当たる */ }
+  },
 };
+
+/// 表示を当てる。描画前の分は build.py が head で当てているので、ここは切り替えたときと起動時の後始末。
+///
+/// iPhone の時刻表示まわりの色（theme-color）は、端末の明暗で選ぶ 2 枚を置いてある。
+/// 固定にしたときは両方を選んだ側の色にしないと、端末が暗いときに明るい画面の上だけ黒くなる。
+const THEME_COLORS = { light: '#f4f3ef', dark: '#121417' };
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (theme === 'light' || theme === 'dark') root.dataset.theme = theme;
+  else delete root.dataset.theme;
+  for (const meta of document.querySelectorAll('meta[name="theme-color"]')) {
+    const own = (meta.media ?? '').includes('dark') ? 'dark' : 'light';
+    meta.content = THEME_COLORS[theme === 'auto' ? own : theme];
+  }
+}
+applyTheme(settings.theme);
 
 // ============================================================
 // 小さな道具
@@ -4291,7 +4383,34 @@ hooks.openSettings = function () {
       selected: settings.autoLockMinutes === minutes }));
   }
 
+  // 表示の切り替え。押した瞬間に当てて、その場で見比べられるようにする。
+  const themeChoices = [['auto', '自動'], ['light', 'ライト'], ['dark', 'ダーク']];
+  const themeSeg = el('div', { className: 'seg', role: 'group', 'aria-label': '表示' });
+  for (const [value, label] of themeChoices) {
+    themeSeg.append(el('button', {
+      type: 'button', textContent: label, 'data-value': value,
+      'aria-pressed': String(settings.theme === value),
+      onclick: () => {
+        settings.theme = value;
+        applyTheme(value);
+        for (const button of themeSeg.children) {
+          button.setAttribute('aria-pressed', String(button.dataset.value === value));
+        }
+      },
+    }));
+  }
+
   body.append(
+    el('div', { className: 'g-title', textContent: '表示' }),
+    el('div', { className: 'group' }, [
+      el('div', { className: 'g-row between' }, [
+        el('div', {}, [
+          el('div', { textContent: '外観' }),
+          el('div', { className: 'g-sub', textContent: '自動は端末のライト・ダークの設定に合わせます。' }),
+        ]),
+        themeSeg,
+      ]),
+    ]),
     el('div', { className: 'g-title', textContent: 'セキュリティ' }),
     el('div', { className: 'group' }, [
       el('div', { className: 'g-row between' }, [el('span', { textContent: '自動ロック' }), lockSelect]),

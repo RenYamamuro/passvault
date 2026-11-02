@@ -81,8 +81,12 @@
   --fs-7: 30px;   /* 大きな見出し（iOS の Large Title）。ホームと一覧の頭だけに使う */
 }
 
+/* 暗い配色。端末の設定に従う（自動）ときと、設定で「ダーク」を選んだときの 2 か所に同じ値を置く。
+   CSS では媒体の条件と属性の条件を 1 つの規則にまとめられないため。
+   2 つが食い違わないよう、tests.html が中身の一致を見張っている。 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --accent: #e8a73f;
     --accent-text: #1b1406;
     --accent-fallback: #e8a73f;
@@ -116,6 +120,41 @@
     --side-l: 66%;
   }
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --accent: #e8a73f;
+  --accent-text: #1b1406;
+  --accent-fallback: #e8a73f;
+
+  /* 黒を持ち上げる。沈めきると輪郭が消えて階層が読めない。 */
+  /* アイコンと同じ、わずかに青みのある炭色 */
+  --window: #121417;
+  --bar: rgba(25, 27, 31, 0.78);
+  --content: #191b1f;
+  --raised: #22252a;
+  --sunken: #16181c;
+
+  --text: rgba(255, 255, 255, 0.92);
+  --text-2: rgba(255, 255, 255, 0.62);
+  --text-3: rgba(255, 255, 255, 0.44);
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.055);
+
+  --danger: #ff6b61;
+  --warn: #ff8f4d;
+  --ok: #41c777;
+
+  --shadow-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.36), 0 1px 2px rgba(0, 0, 0, 0.28);
+  --shadow-sheet: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 24px 64px rgba(0, 0, 0, 0.58);
+
+  --selected: color-mix(in srgb, var(--accent, var(--accent-fallback)) 20%, transparent);
+
+  --tile-bg-s: 40%;  --tile-bg-l: 24%;
+  --tile-fg-s: 85%;  --tile-fg-l: 80%;
+  --side-l: 66%;
+}
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -808,4 +847,19 @@ select.field {
 @media (pointer: coarse) {
   :root { --fs-input: 16px; }
   input, textarea, select { font-size: var(--fs-input); }
+}
+
+/* 三択の切り替え（表示: 自動・ライト・ダーク）。LIFT LOG と同じ形。 */
+.seg {
+  display: inline-flex; gap: 2px; padding: 2px; flex: none;
+  background: var(--sunken); border-radius: var(--r-small);
+}
+.seg button {
+  border: none; background: none; color: var(--text-2); white-space: nowrap;
+  font-size: var(--fs-3); padding: 4px 12px; border-radius: var(--r-small);
+  min-height: 32px;
+}
+.seg button[aria-pressed="true"] {
+  background: var(--raised); color: var(--text); font-weight: 600;
+  box-shadow: var(--shadow-raised);
 }

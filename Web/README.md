@@ -7,6 +7,10 @@
 - 配色: OS のアクセント色をやめ、金を 1 色だけ固定で差す。明るい画面では白地で読めるよう
   銅色（#8f5a07、5.6:1）、暗い画面では金（#e8a73f）の上の文字を墨色にする（8.7:1）。
   警告は金と見分けるため橙へ寄せた。比はすべて検証ページが計算して見張る
+- 表示: 設定の「表示」で 自動・ライト・ダーク を選べる（LIFT LOG と同じ形）。端末ごとに覚え、
+  head の小さな処理で描画前に当てるのでちらつかない。暗い配色は「自動で暗い」と「ダーク固定」の
+  2 か所に同じ値を置き、食い違わないことを検証ページが見張る
+- 文字: LIFT LOG・MEAL LOG と同じ丸い書体（ヒラギノ丸ゴ＋SF Pro Rounded / Nunito）
 - **変えていないもの**: URL（/passvault/）、保存領域の名前（passvault.*）、`.pvlt` 形式、
   Drive 上のファイル名。変えると端末の中の保管庫や Drive 同期の戻り先が切れる
 
@@ -63,7 +67,7 @@ python3 Web/build.py          # Web/PassVault.html を生成
 ```bash
 python3 Web/serve.py
 # http://localhost:8770/index.html  … 分割したままのアプリ
-# http://localhost:8770/tests.html  … 検証（324 項目）
+# http://localhost:8770/tests.html  … 検証（341 項目）
 #
 # serve.py はキャッシュを無効にして配る。素の http.server だと
 # ブラウザが古い .js を握ったまま離さず、直したものが直って見えない。

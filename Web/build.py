@@ -137,6 +137,15 @@ if ('serviceWorker' in navigator) {
 <meta charset="utf-8">
 {CSP}
 {head}
+<script>
+// 表示（ライト・ダーク）は描画前に当てる。あとから当てると一瞬ちらつく。
+(function () {{
+  try {{
+    var saved = localStorage.getItem('passvault.theme');
+    if (saved === 'light' || saved === 'dark') document.documentElement.dataset.theme = saved;
+  }} catch (e) {{}}
+}})();
+</script>
 <title>Keystone</title>
 <!--
   このファイルは Web/build.py が生成したものです。直接編集しないでください。
@@ -262,7 +271,10 @@ def main() -> int:
     style += "\n\n/* ===== " + THEME + " ===== */\n"
     style += (HERE / THEME).read_text(encoding="utf-8")
     script = "".join(chunks)
-    version = hashlib.sha256((style + script).encode()).hexdigest()[:12]
+    # 版は配る HTML 全体から作る。CSS と JS だけだと、head（描画前の処理など）だけを
+    # 変えたときに版が変わらず、端末の棚が古いまま入れ替わらない。
+    template = page(style, script, '', pwa=True) + page(style, script, '')
+    version = hashlib.sha256(template.encode()).hexdigest()[:12]
     html = page(style, script, version)
 
     # 出荷前に構文を検める。壊れたバンドルは画面が真っ白になるだけで、
