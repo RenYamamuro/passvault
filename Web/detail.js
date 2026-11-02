@@ -754,19 +754,26 @@ const payloadSnapshot = () =>
 /// 相手のファイルを開く。まず手元の鍵を試し、駄目ならパスワードを訊く。
 /// 別の端末でマスターパスワードを変えていた場合は鍵が違うため。
 async function decryptForeignVault(bytes) {
+  return (await openForeignVault(bytes))?.payload ?? null;
+}
+
+/// 相手のファイルを開き、開けた鍵も返す。取り消されたら null。
+/// keyed は「手元の鍵では開けず、パスワードを訊いて開いた」ことを表す。
+async function openForeignVault(bytes) {
   const header = V.decodeHeader(bytes);
 
   const sameHeader = state.header
     && header.raw.length === state.header.raw.length
     && header.raw.every((byte, index) => byte === state.header.raw[index]);
   if (sameHeader) {
-    try { return await V.open(bytes, state.key, header); } catch { /* 訊きに回る */ }
+    try { return { payload: await V.open(bytes, state.key, header), key: state.key, header, keyed: false }; }
+    catch { /* 訊きに回る */ }
   }
 
   const password = await askPassword();
   if (password === null) return null;
   const key = await V.deriveKey(password, header);
-  return V.open(bytes, key, header);  // 違えば例外が出る
+  return { payload: await V.open(bytes, key, header), key, header, keyed: true };  // 違えば例外が出る
 }
 
 function askPassword() {
@@ -1119,9 +1126,22 @@ async function syncWithDrive() {
     const remote = await D.driveFindVault();
     let summary = null;
     if (remote) {
-      const payload = await decryptForeignVault(await D.driveDownload(remote.id));
-      if (!payload) { toast('同期を中止しました'); return; }
-      summary = await applyMerge(payload);
+      const opened = await openForeignVault(await D.driveDownload(remote.id));
+      if (!opened) { toast('同期を中止しました'); return; }
+      if (opened.keyed) {
+        // 別々に作った保管庫どうしは、塩（ヘッダ）が違う。そのままだと
+        // 同期のたびに相手側でパスワードを訊かれ、2 台で交互に訊かれ続ける。
+        // ここで手元を Drive の鍵に揃えれば、以後はどちらでも訊かれない。
+        const agreed = await hooks.askConfirm(
+          'この端末を Drive の保管庫に揃えます',
+          '次からは、いま入力したパスワードでこの端末の保管庫も開くようになります。'
+          + '中身は合流させるので、この端末の項目は消えません。',
+          { confirmLabel: '揃える' });
+        if (!agreed) { toast('同期を中止しました'); return; }
+        state.key = opened.key;
+        state.header = opened.header;
+      }
+      summary = await applyMerge(opened.payload);
       if (!summary) return;  // 手元に書けなかった。applyMerge が知らせている
     }
     const bytes = await V.seal(
