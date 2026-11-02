@@ -91,9 +91,9 @@ def page(style: str, script: str, version: str, pwa: bool = False) -> str:
         head = """<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="PassVault">
-<meta name="theme-color" content="#1c1c1e" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#e8e8ea" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-title" content="Keystone">
+<meta name="theme-color" content="#121417" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f3ef" media="(prefers-color-scheme: light)">
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="apple-touch-icon" href="./apple-touch-icon.png">
 <!-- 検索避け。個人の保管庫なので、見つけてもらう必要がない。 -->
@@ -115,7 +115,7 @@ if ('serviceWorker' in navigator) {
 <meta charset="utf-8">
 {CSP}
 {head}
-<title>PassVault</title>
+<title>Keystone</title>
 <!--
   このファイルは Web/build.py が生成したものです。直接編集しないでください。
   元は Web/style.css と Web/*.js です。
@@ -163,13 +163,13 @@ def build_site(style: str, script: str, version: str) -> bool:
             return False
 
     (SITE / "manifest.webmanifest").write_text(json.dumps({
-        "name": "PassVault",
-        "short_name": "PassVault",
+        "name": "Keystone",
+        "short_name": "Keystone",
         "start_url": "./index.html",
         "scope": "./",
         "display": "standalone",
-        "background_color": "#1c1c1e",
-        "theme_color": "#1c1c1e",
+        "background_color": "#121417",
+        "theme_color": "#121417",
         "icons": [
             {"src": "./icon-192.png", "sizes": "192x192", "type": "image/png"},
             {"src": "./icon-512.png", "sizes": "512x512", "type": "image/png"},

@@ -14,8 +14,8 @@ const STROKED = {
   wifi: '<path d="M2.5 8.6a15 15 0 0 1 19 0M5.8 12.2a10 10 0 0 1 12.4 0M9.2 15.7a5 5 0 0 1 5.6 0"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>',
   seal: '<path d="M12 2.8 14.3 5l3-.4 1 2.9 2.6 1.6-1.1 2.9 1.1 2.9-2.6 1.6-1 2.9-3-.4L12 21.2 9.7 19l-3 .4-1-2.9L3.1 15l1.1-2.9L3.1 9.2l2.6-1.6 1-2.9 3 .4z"/><path d="m9 12 2.2 2.2L15.3 10"/>',
 
-  // アプリの印。アイコン（make-icon.py の dial）と同じ形にしてある。
-  vault: '<circle cx="12" cy="12" r="7.6"/><path d="M10.4 10.4 7.1 7.1M13.6 10.4 16.9 7.1M10.4 13.6 7.1 16.9M13.6 13.6 16.9 16.9"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+  // アプリの印。アイコン（make-icon.py の keystone）と同じ形にしてある。要石だけ塗る。
+  keystone: '<path d="M5.5 20.5v-7.3a6.5 6.5 0 0 1 3.4-5.7M18.5 20.5v-7.3a6.5 6.5 0 0 0-3.4-5.7"/><path d="M9.3 3.6h5.4l-1 4.6h-3.4z" fill="currentColor"/>',
 
   // 画面の道具
   grid: '<rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/>',

@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>PassVault web 版の検証</title>
+<title>Keystone web 版の検証</title>
 <style>
   body { font: 13px/1.7 ui-monospace, monospace; margin: 24px; max-width: 900px; }
   h1 { font: 600 20px/1.4 -apple-system, sans-serif; }
@@ -12,7 +12,7 @@
 </style>
 </head>
 <body>
-<h1>PassVault web 版の検証</h1>
+<h1>Keystone web 版の検証</h1>
 <pre id="out">実行中…</pre>
 <div id="summary"></div>
 
@@ -1038,14 +1038,14 @@ section('Apple の「パスワード」に倣った構造');
     const kindRows = [...document.querySelectorAll('#main .home .g-row.action .grow')].map(n => n.textContent);
     check('種別は中身のあるものだけ並ぶ（空の器を並べない）',
           JSON.stringify(kindRows) === JSON.stringify(['ログイン', 'クレジットカード']));
-    check('ホームの見出しは大きな見出し', document.querySelector('#main h1.large-title')?.textContent === 'PassVault');
+    check('ホームの見出しは大きな見出し', document.querySelector('#main h1.large-title')?.textContent === 'Keystone');
 
     tiles.find(t => t.getAttribute('aria-label').startsWith('コード')).click();
     check('タイルを押すと、その区分の一覧へ進む',
           App.state.view === 'list' && document.querySelector('#main h1.large-title')?.textContent === 'コード'
           && document.querySelectorAll('#main .item-row').length === 1);
     check('一覧の帯には、ホームへの戻るボタンがある',
-          document.querySelector('#bar .backbtn')?.getAttribute('aria-label') === 'PassVaultへ戻る');
+          document.querySelector('#bar .backbtn')?.getAttribute('aria-label') === 'Keystoneへ戻る');
 
     key('Escape');
     await wait(20);
@@ -1586,6 +1586,32 @@ section('iPhone の時刻表示との重なり');
         barRules.every(body => /padding-top:\s*calc\([^;]*env\(safe-area-inset-top/.test(body)));
   const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
   check('配信版は画面の端まで使う設定（だからずらしが要る）', site.includes('viewport-fit=cover'));
+}
+
+// ============================================================
+section('Keystone の配色');
+// ============================================================
+{
+  const css = await (await fetch('style.css', { cache: 'no-store' })).text();
+  const darkAt = css.indexOf('@media (prefers-color-scheme: dark)');
+  const pick = (part, name) => part.match(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1];
+  const lum = hex => {
+    const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  for (const [mode, part] of [['明るい画面', css.slice(0, darkAt)], ['暗い画面', css.slice(darkAt)]]) {
+    const accent = pick(part, 'accent'), content = pick(part, 'content'), window_ = pick(part, 'window');
+    const onAccent = pick(part, 'accent-text') ?? '#ffffff';
+    check(`${mode}: 金（アクセント）は固定の色`, Boolean(accent));
+    check(`${mode}: 金の文字が地の上で読める（4.5:1 以上）`,
+          ratio(accent, content) >= 4.5 && ratio(accent, window_) >= 4.5);
+    check(`${mode}: 金の上の文字が読める（4.5:1 以上）`, ratio(onAccent, accent) >= 4.5);
+    const warn = pick(part, 'warn');
+    check(`${mode}: 警告が地の上で読める`, ratio(warn, content) >= 4.5);
+  }
+  check('OS のアクセント色には頼らない', !/:\s*AccentColor/.test(css));
 }
 
 } catch (error) {

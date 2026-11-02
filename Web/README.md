@@ -1,4 +1,14 @@
-# PassVault（web 版）
+# Keystone（web 版、旧名 PassVault）
+
+2026-11-02 に名前・アイコン・配色を改めた。要石（keystone）はアーチの頂の石で、
+抜けると全体が崩れる。マスターパスワード 1 つがすべてを支える、という仕組みそのもの。
+
+- アイコン: 炭色の地に、温かい灰のアーチと金の要石（`make-icon.py keystone`）
+- 配色: OS のアクセント色をやめ、金を 1 色だけ固定で差す。明るい画面では白地で読めるよう
+  銅色（#8f5a07、5.6:1）、暗い画面では金（#e8a73f）の上の文字を墨色にする（8.7:1）。
+  警告は金と見分けるため橙へ寄せた。比はすべて検証ページが計算して見張る
+- **変えていないもの**: URL（/passvault/）、保存領域の名前（passvault.*）、`.pvlt` 形式、
+  Drive 上のファイル名。変えると端末の中の保管庫や Drive 同期の戻り先が切れる
 
 ブラウザで動くパスワード管理。**単一の HTML ファイル**をローカルに置いて開く。
 通信は、設定で選んだときの Google Drive との同期だけ。保管庫は暗号化されたファイルとして自分で持つ。
@@ -53,7 +63,7 @@ python3 Web/build.py          # Web/PassVault.html を生成
 ```bash
 python3 Web/serve.py
 # http://localhost:8770/index.html  … 分割したままのアプリ
-# http://localhost:8770/tests.html  … 検証（315 項目）
+# http://localhost:8770/tests.html  … 検証（324 項目）
 #
 # serve.py はキャッシュを無効にして配る。素の http.server だと
 # ブラウザが古い .js を握ったまま離さず、直したものが直って見えない。

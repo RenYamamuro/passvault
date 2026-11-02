@@ -777,7 +777,7 @@ function createCard() {
       if (canUseFilePicker) {
         const handle = await window.showSaveFilePicker({
           suggestedName: 'vault.pvlt',
-          types: [{ description: 'PassVault の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
+          types: [{ description: 'Keystone の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
         });
         state.fileHandle = handle;
         state.fileName = handle.name;
@@ -820,7 +820,7 @@ function createCard() {
   };
 
   return el('div', { className: 'gate-card' }, [
-    el('div', { className: 'gate-mark' }, [icon('vault', 44)]),
+    el('div', { className: 'gate-mark' }, [icon('keystone', 44)]),
     el('h1', { textContent: '保管庫をつくる' }),
     el('p', { className: 'lead', textContent: 'マスターパスワードだけがこの保管庫を開ける鍵です。どこにも保存されないので、忘れると中身は取り出せません。' }),
     revealable(first), revealable(second),
@@ -838,7 +838,7 @@ async function pickVaultFile() {
     let file;
     if (typeof window.showOpenFilePicker === 'function') {
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'PassVault の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
+        types: [{ description: 'Keystone の保管庫', accept: { 'application/octet-stream': ['.pvlt'] } }],
       });
       state.fileHandle = handle;
       await rememberVaultHandle(handle);
@@ -1083,8 +1083,8 @@ function renderBar(split = false) {
   const brand = (withName) => el('div', {
     className: 'brand', title: state.dirty ? '保存できていない変更があります' : '',
   }, [
-    icon('vault', 18),
-    withName ? el('span', { textContent: 'PassVault' }) : null,
+    icon('keystone', 18),
+    withName ? el('span', { textContent: 'Keystone' }) : null,
     state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
   ]);
   const back = (label, title, onclick) => el('button', {
@@ -1106,12 +1106,12 @@ function renderBar(split = false) {
     );
   } else if (state.view === 'list') {
     bar.replaceChildren(
-      back('PassVault', 'ホームへ戻る（Esc）', goHome),
+      back('Keystone', 'ホームへ戻る（Esc）', goHome),
       barTitle(selectionTitle(state.selection)),
       tools(addButton),
     );
   } else {
-    bar.replaceChildren(brand(false), barTitle('PassVault'), tools(addButton));
+    bar.replaceChildren(brand(false), barTitle('Keystone'), tools(addButton));
   }
 }
 
@@ -1215,7 +1215,7 @@ function renderSidebar() {
 
 /// 狭い画面のホーム。区分のタイルと、種別の一覧。
 function renderHome() {
-  const parts = [el('h1', { className: 'large-title', textContent: 'PassVault' }), searchField()];
+  const parts = [el('h1', { className: 'large-title', textContent: 'Keystone' }), searchField()];
 
   if (isEmptyVault()) {
     // 何も入っていないのに 0 のタイルを並べても、押す理由がない。移行の入口を出す。
@@ -1258,7 +1258,7 @@ function renderHome() {
 /// 初めて開いたとき。ここが移行の入口なので、受け身に「＋から」と言うだけにしない。
 function firstRunBlock() {
   return el('div', { className: 'empty first' }, [
-    el('span', { className: 'big' }, [icon('vault', 44)]),
+    el('span', { className: 'big' }, [icon('keystone', 44)]),
     el('span', { className: 'lead', textContent: 'まだ何も入っていません' }),
     el('span', { className: 'sub', textContent:
       '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),

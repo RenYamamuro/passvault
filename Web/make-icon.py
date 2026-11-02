@@ -2,7 +2,7 @@
 """アプリのアイコンを作る。
 
   python3 Web/make-icon.py            … 候補を Web/icon-draft/ に並べる
-  python3 Web/make-icon.py wheel      … 決めた案で本番の一式を作る
+  python3 Web/make-icon.py keystone   … 決めた案で本番の一式を作る
 
 作り方の決めごと:
   ・4 倍で描いて縮める。Pillow の図形描画には縁の滑らかさが無いため
@@ -28,14 +28,21 @@ DEEP = (46, 61, 168)
 INK = (255, 255, 255)
 
 
-def tile() -> Image.Image:
+# Keystone の地と石。地は青みを帯びた炭色、石は温かい灰、要石だけが金。
+CHAR_TOP = (36, 39, 47)
+CHAR_BOTTOM = (18, 20, 24)
+STONE = (222, 218, 207)
+GOLD = (232, 167, 63)
+
+
+def tile(top=SKY, bottom=DEEP) -> Image.Image:
     """斜めのグラデーションを敷いた正方形。"""
     small = Image.new('RGB', (64, 64))
     px = small.load()
     for y in range(64):
         for x in range(64):
             t = (x + y) / 126
-            px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(SKY, DEEP))
+            px[x, y] = tuple(round(a + (b - a) * t) for a, b in zip(top, bottom))
     return small.resize((N, N), Image.BICUBIC).convert('RGBA')
 
 
@@ -138,11 +145,39 @@ def key(draw):
              (round(px + tooth * k), round(py - tooth * k)), stroke)
 
 
-DESIGNS = {'wheel': wheel, 'dial': dial, 'shield': shield, 'key': key}
+def keystone(draw):
+    """アーチと要石。要石が抜けるとアーチ全体が崩れる。
+    マスターパスワード 1 つがすべてを支える、という仕組みそのもの。
+
+    石は 2 本の脚と円弧だけにして、継ぎ目は描かない。32px で潰れるため。
+    要石は上へ広がる台形にし、両側に隙間を空けて「はめ込まれた石」に見せる。
+    """
+    c = N // 2
+    cy = int(N * 0.585)              # アーチの中心。全体が上下で釣り合う高さ
+    R = int(N * 0.250)               # 外側の半径
+    w = int(N * 0.084)               # 石の太さ
+    foot = int(N * 0.785)            # 脚の下端
+    box = [c - R, cy - R, c + R, cy + R]
+    # Pillow の角度は 3 時から時計回り。真上が 270 度。要石の分だけ両側を空ける。
+    gap = 25
+    draw.arc(box, 180, 270 - gap, fill=STONE, width=w)
+    draw.arc(box, 270 + gap, 360, fill=STONE, width=w)
+    draw.rectangle([c - R, cy, c - R + w, foot], fill=STONE)
+    draw.rectangle([c + R - w, cy, c + R, foot], fill=STONE)
+    # 要石。上辺は円弧の外へ少しはみ出し、下辺は内側の線に揃える。
+    top, bottom = cy - R - int(N * 0.062), cy - R + w + int(N * 0.034)
+    half_top, half_bottom = int(N * 0.112), int(N * 0.064)
+    draw.polygon([(c - half_top, top), (c + half_top, top),
+                  (c + half_bottom, bottom), (c - half_bottom, bottom)], fill=GOLD)
+
+
+DESIGNS = {'wheel': wheel, 'dial': dial, 'shield': shield, 'key': key, 'keystone': keystone}
+# 地の色が案ごとに違うもの。書いていない案は藍のグラデーション。
+GROUNDS = {'keystone': (CHAR_TOP, CHAR_BOTTOM)}
 
 
 def render(name: str) -> Image.Image:
-    base = tile()
+    base = tile(*GROUNDS.get(name, (SKY, DEEP)))
     glyph = Image.new('RGBA', (N, N), (0, 0, 0, 0))
     DESIGNS[name](ImageDraw.Draw(glyph))
     base.alpha_composite(glyph)

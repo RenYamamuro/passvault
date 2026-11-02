@@ -43,7 +43,7 @@ hooks.renderDetail = function renderDetail() {
       // 並べているときは、何も選んでいない状態が普通にある。右側を空白にせず、次の手を示す。
       column.replaceChildren(el('div', { className: 'sheet' }, [
         el('div', { className: 'empty placeholder' }, [
-          el('span', { className: 'big' }, [icon('vault', 44)]),
+          el('span', { className: 'big' }, [icon('keystone', 44)]),
           el('span', { className: 'lead', textContent: '項目を選ぶと、中身がここに出ます' }),
           el('span', { className: 'sub', textContent: '↑ ↓ で選べます。⌘C でパスワード、⌘⇧C でユーザー名を写せます。' }),
         ]),
@@ -896,7 +896,7 @@ async function pickFile(accept, description) {
 
 /// 相手のファイルを選んで取り込む
 async function importFromFile() {
-  const file = await pickFile('.pvlt', 'PassVault の保管庫');
+  const file = await pickFile('.pvlt', 'Keystone の保管庫');
   if (!file) return;
   await importBytes(new Uint8Array(await file.arrayBuffer()), file.name);
 }
@@ -1036,7 +1036,7 @@ function openEmergencyKit() {
   const opened = window.location.href.split('?')[0];
 
   body.append(el('div', { className: 'kit' }, [
-    el('h2', { textContent: 'PassVault 緊急用シート' }),
+    el('h2', { textContent: 'Keystone 緊急用シート' }),
     el('p', { textContent:
       'この紙は、パスワードの保管庫を開くための手引きです。'
       + '保管庫そのものは暗号化されていて、下に書く「マスターパスワード」なしには誰にも開けません。' }),
@@ -1062,7 +1062,7 @@ function openEmergencyKit() {
       `形式 PVLT / AES-256-GCM / PBKDF2-HMAC-SHA512 ${state.header.iterations.toLocaleString()} 回` }),
     el('p', { textContent:
       'ファイルの先頭 44 バイトが平文の見出しで、続きが暗号文です。'
-      + '仕様は PassVault の README にあります。' }),
+      + '仕様は Keystone（旧名 PassVault）の README にあります。' }),
 
     el('div', { className: 'kit-foot', textContent: `作成: ${fmtDateTime(V.isoNoMillis())}` }),
   ]));
