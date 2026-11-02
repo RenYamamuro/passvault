@@ -497,6 +497,12 @@ export async function requestDurableStorage() {
   }
 }
 
+/// いま読み込み直しても何も失わないか。新しい版へ切り替えるときに使う（build.py）。
+export function safeToReload() {
+  if (state.key || state.dirty || state.holds > 0) return false;
+  return [...document.querySelectorAll('#gate input')].every(input => !input.value);
+}
+
 export function lock() {
   state.key = null;
   state.header = null;

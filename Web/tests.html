@@ -198,9 +198,12 @@ check('数字だけの設定で数字しか出ない', pins.every(p => /^[0-9]{6
 const counts = {};
 for (const pin of pins) for (const digit of pin) counts[digit] = (counts[digit] ?? 0) + 1;
 const expected = pins.length * 6 / 10;
-const maxDeviation = Math.max(...Object.values(counts).map(c => Math.abs(c - expected) / expected));
+// カイ二乗で見る。以前は「どの数字もずれ 10% 未満」で判定していたが、
+// 10% は約 3.6σ しかなく、偏りの無い生成器でも 300 回に 2 回ほど落ちた（実測）。
+// 自由度 9 で 45 を超える確率は約 100 万分の 1。偏りがあれば数 % でも大きく出る。
+const chiSquare = Object.values(counts).reduce((sum, c) => sum + (c - expected) ** 2 / expected, 0);
 check('0-9 すべてが出現', Object.keys(counts).length === 10);
-check(`0-9 の出現が概ね均等（最大ずれ ${Math.round(maxDeviation * 100)}%）`, maxDeviation < 0.10);
+check(`0-9 の出現が均等（カイ二乗 ${chiSquare.toFixed(1)}、45 未満なら合格）`, chiSquare < 45);
 check('エントロピーの計算が妥当（24文字で 120 ビット超）',
       X.generatorEntropyBits(options) > 120);
 
@@ -1587,6 +1590,9 @@ section('iPhone の時刻表示との重なり');
         barRules.every(body => /padding-top:\s*calc\([^;]*env\(safe-area-inset-top/.test(body)));
   const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
   check('配信版は画面の端まで使う設定（だからずらしが要る）', site.includes('viewport-fit=cover'));
+  check('新しい版に切り替わったら 1 回だけ読み込み直す', site.includes('controllerchange') && site.includes('safeToReload()'));
+  const worker = await (await fetch('site/sw.js', { cache: 'no-store' })).text();
+  check('新しい版の棚には HTTP キャッシュを通さずに取る', worker.includes("cache: 'reload'"));
   check('アプリの高さは見えている高さ（dvh）', /#app\s*\{[^}]*height:\s*100dvh/.test(css));
   check('指で触る画面では入力欄を 16px にする（iPhone の自動拡大を止める）',
         /@media \(pointer: coarse\)\s*\{[^}]*--fs-input:\s*16px;[^}]*\}\s*input, textarea, select\s*\{\s*font-size:\s*var\(--fs-input\)/.test(css));

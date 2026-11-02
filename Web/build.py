@@ -99,8 +99,29 @@ def page(style: str, script: str, version: str, pwa: bool = False) -> str:
 <!-- 検索避け。個人の保管庫なので、見つけてもらう必要がない。 -->
 <meta name="robots" content="noindex, nofollow">"""
         # 登録に失敗しても本体は動く。電波が無いときに開けなくなるだけ。
+        # 新しい版の棚に切り替わったら、その場で 1 回だけ読み込み直す。
+        # 以前は次の起動まで古い版のままで、更新を見るのに 2 回開き直す必要があった。
+        # ただし施錠中で、パスワード欄が空のときだけ。解錠中に読み込み直すと
+        # 開いていた保管庫が閉じ、打ちかけのパスワードも消える。そのときは次の起動に任せる。
         tail = """<script>
 if ('serviceWorker' in navigator) {
+  const hadWorker = Boolean(navigator.serviceWorker.controller);
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // 初めて入れたときも切り替わりは起きる。そのときは中身が同じなので読み直さない。
+    if (!hadWorker || reloaded) return;
+    let tries = 0;
+    const attempt = () => {
+      if (reloaded) return;
+      if (typeof safeToReload === 'function' && safeToReload()) {
+        reloaded = true;
+        location.reload();
+      } else if (++tries < 15) {
+        setTimeout(attempt, 1000);
+      }
+    };
+    attempt();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });

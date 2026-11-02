@@ -10,7 +10,10 @@ const SHELL = ['./', './index.html', './manifest.webmanifest',
                './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(SHELF).then(shelf => shelf.addAll(SHELL)));
+  // ブラウザの HTTP キャッシュを通さずに取る。通すと、新しい版の棚に
+  // 古い index.html が入ることがあり、何度開き直しても更新されなかった。
+  event.waitUntil(caches.open(SHELF).then(shelf =>
+    shelf.addAll(SHELL.map(path => new Request(path, { cache: 'reload' })))));
   self.skipWaiting();
 });
 

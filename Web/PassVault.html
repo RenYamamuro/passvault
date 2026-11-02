@@ -809,7 +809,7 @@ select.field {
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "da156d406454";</script>
+<script>window.PASSVAULT_BUILD = "88252acc59eb";</script>
 <script>
 
 // ===== core.js =====
@@ -2484,6 +2484,12 @@ async function requestDurableStorage() {
   } catch {
     return null;
   }
+}
+
+/// いま読み込み直しても何も失わないか。新しい版へ切り替えるときに使う（build.py）。
+function safeToReload() {
+  if (state.key || state.dirty || state.holds > 0) return false;
+  return [...document.querySelectorAll('#gate input')].every(input => !input.value);
 }
 
 function lock() {
