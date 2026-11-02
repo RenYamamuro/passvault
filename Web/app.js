@@ -29,7 +29,7 @@ export const state = {
   revealed: new Set(),
   lastActivity: Date.now(),
   holds: 0,           // 0 より大きい間は自動施錠しない
-  view: 'list',       // いま出している画面: list | detail
+  view: 'home',       // 狭い画面で出している面: home | list | detail（広い画面では使わない）
   cursor: -1,         // 一覧でキーボードが指している位置（-1 はまだ触っていない）
   stash: null,        // 施錠時に保存できていなかった変更（暗号化したまま）
 };
@@ -504,6 +504,8 @@ export function lock() {
   state.revealed.clear();
   state.selectedId = null;
   state.selection = { kind: 'all' };
+  state.search = '';
+  state.view = 'home';
   render();
 }
 
@@ -873,6 +875,7 @@ function itemsFor(selection) {
   switch (selection.kind) {
     case 'all': return activeItems();
     case 'favorites': return activeItems().filter(item => item.isFavorite);
+    case 'codes': return activeItems().filter(item => item.oneTimePasswordSecret);
     case 'category': return activeItems().filter(item => item.category === selection.value);
     case 'tag': return activeItems().filter(item => item.tags.includes(selection.value));
     case 'watchtower': {
@@ -895,7 +898,7 @@ function visibleItems() {
 }
 
 const selectionTitle = selection => ({
-  all: 'すべて', favorites: 'お気に入り', watchtower: '点検', trash: 'ゴミ箱',
+  all: 'すべて', favorites: 'お気に入り', codes: 'コード', watchtower: 'セキュリティ', trash: '削除済み',
   category: V.CATEGORIES[selection.value]?.name, tag: selection.value,
 }[selection.kind] ?? 'すべて');
 
@@ -916,6 +919,7 @@ export const isWide = () => layoutOverride.wide ?? window.matchMedia(WIDE_QUERY)
 export const isSplit = () => isWide() && (activeItems().length > 0 || trashedItems().length > 0);
 
 /// 一覧と詳細の描き先。並べるときは専用のペイン、そうでなければ #main そのもの。
+/// 広い画面は Apple の「パスワード」と同じく、サイドバー・一覧・詳細の 3 列。
 const listHost = () => (isSplit() ? $('#main .pane-list') : $('#main'));
 export const detailHost = () => (isSplit() ? $('#main .pane-detail') : $('#main'));
 
@@ -926,6 +930,7 @@ function ensureLayout(split) {
   const has = main.classList.contains('split');
   if (split && !has) {
     main.replaceChildren(
+      el('section', { className: 'pane-side', 'aria-label': '区分' }),
       el('section', { className: 'pane-list', 'aria-label': '項目の一覧' }),
       el('section', { className: 'pane-detail', 'aria-label': '項目の詳細' }),
     );
@@ -974,6 +979,18 @@ function markLandmarks() {
 }
 
 let lastScreen = '';
+let savedListScroll = 0;
+
+/// 大きな見出しがスクロールで隠れたら、上の帯に小さく題名を出す（iOS の作法）。
+let watchingScroll = false;
+function watchScroll() {
+  if (watchingScroll) return;
+  watchingScroll = true;
+  $('#main').addEventListener('scroll', updateBarTitle, { passive: true });
+}
+function updateBarTitle() {
+  $('#bar')?.classList.toggle('scrolled', !isSplit() && $('#main').scrollTop > 40);
+}
 
 export function render() {
   markLandmarks();
@@ -1000,20 +1017,34 @@ export function render() {
     if (state.view === 'detail') state.view = 'list';
     if (split) state.selectedId = null;
   }
-  // 並べる画面では、詳細は常に右に出ているので「詳細の面」という状態は持たない。
+  // 並べる画面では、詳細は常に右に出ているので「面」という状態は持たない。
   // 狭い画面から広げたとき、開いていた項目は右側に引き継ぐ。
   if (split) state.view = 'list';
+  // 何も入っていない保管庫は、狭い画面ではホーム（移行の入口）を出す
+  else if (isEmptyVault()) state.view = 'home';
+
+  const screen = split ? 'split' : `${state.view}:${state.view === 'detail' ? state.selectedId : ''}`;
+  const main = $('#main');
+  // 一覧から詳細へ進むとき、一覧のスクロール位置を控える（戻ったときに元の場所へ）
+  if (screen !== lastScreen && lastScreen.startsWith('list')) savedListScroll = main.scrollTop;
 
   const snapshot = focusSnapshot();
   ensureLayout(split);
   renderBar(split);
-  if (split) { renderListView(); renderDetail(); }
+  if (split) { renderSidebar(); renderListView(); renderDetail(); }
   else if (state.view === 'detail') renderDetail();
+  else if (state.view === 'home') renderHome();
   else renderListView();
+
+  // 狭い画面で面が変わったら、頭から見せる。詳細から一覧へ戻ったときだけ元の位置へ。
+  if (!split && screen !== lastScreen) {
+    main.scrollTop = screen.startsWith('list') && lastScreen.startsWith('detail') ? savedListScroll : 0;
+  }
+  watchScroll();
+  updateBarTitle();
 
   // 同じ画面の描き直しなら、フォーカスを元の位置へ戻す。
   // 画面が切り替わったときは、行き先の頭へ移す（戻ったときは開いていた行へ）。
-  const screen = split ? 'split' : `${state.view}:${state.view === 'detail' ? state.selectedId : ''}`;
   if (screen === lastScreen) {
     restoreFocus(snapshot);
   } else if (!split && !document.querySelector('dialog[open]')) {
@@ -1027,114 +1058,248 @@ export function render() {
   lastScreen = screen;
 }
 
-/// 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。
+/// 上の帯。
+///
+/// 広い画面: 名前・検索・道具（Mac の「パスワード」のツールバーと同じ並び）。
+/// 狭い画面: 戻る・題名・道具。題名は、大きな見出しがスクロールで隠れたときだけ出す
+/// （出しっぱなしだと、直下の大きな見出しと同じものが 2 回並んで散らかる）。
 function renderBar(split = false) {
   const bar = $('#bar');
-
+  const addButton = el('button', { className: 'iconbtn', title: '新しい項目',
+                                   'aria-label': '新しい項目', onclick: openNewItemMenu }, [icon('plus')]);
   const tools = (...extra) => el('div', { className: 'bar-tools' }, [
     ...extra,
-    el('button', { className: 'iconbtn', title: 'パスワード生成',
+    // 狭い画面では帯に置かない（題名と道具が重なるため）。設定画面からも開ける。
+    el('button', { className: 'iconbtn gen-tool', title: 'パスワード生成',
                    'aria-label': 'パスワード生成', onclick: openGenerator }, [icon('dice')]),
     el('button', { className: 'iconbtn', title: '設定',
                    'aria-label': '設定', onclick: openSettings }, [icon('gear')]),
     el('button', { className: 'iconbtn', title: 'ロック',
                    'aria-label': 'ロック', onclick: lock }, [icon('lock')]),
   ]);
+  const brand = (withName) => el('div', {
+    className: 'brand', title: state.dirty ? '保存できていない変更があります' : '',
+  }, [
+    icon('vault', 18),
+    withName ? el('span', { textContent: 'PassVault' }) : null,
+    state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
+  ]);
+  const back = (label, title, onclick) => el('button', {
+    className: 'backbtn', title, 'aria-label': `${label}へ戻る`, onclick,
+  }, [icon('back', 18), el('span', { textContent: label })]);
+  const barTitle = text => el('div', { className: 'bar-title', 'aria-hidden': 'true', textContent: text });
 
-  if (state.view === 'detail' && !split) {
-    bar.replaceChildren(
-      el('button', { className: 'backbtn', title: '一覧へ戻る（Esc）',
-                     'aria-label': '一覧へ戻る', onclick: showList },
-         [icon('back', 18), el('span', { textContent: selectionTitle(state.selection) })]),
-      // 題名は帯に重ねて出さない。直下の見出しと同じものが 2 回出て、散らかるだけだった。
-      el('div', { className: 'grow' }),
-      tools(),
-    );
+  if (split) {
+    bar.replaceChildren(brand(true), el('div', { className: 'searchwrap' }, [searchField()]), tools(addButton));
     return;
   }
 
-  const search = el('input', {
+  if (state.view === 'detail') {
+    const item = state.items.find(candidate => candidate.id === state.selectedId);
+    bar.replaceChildren(
+      back(selectionTitle(state.selection), '一覧へ戻る（Esc）', showList),
+      barTitle(item ? V.displayTitle(item) : ''),
+      tools(),
+    );
+  } else if (state.view === 'list') {
+    bar.replaceChildren(
+      back('PassVault', 'ホームへ戻る（Esc）', goHome),
+      barTitle(selectionTitle(state.selection)),
+      tools(addButton),
+    );
+  } else {
+    bar.replaceChildren(brand(false), barTitle('PassVault'), tools(addButton));
+  }
+}
+
+/// 区分。Apple の「パスワード」に倣って固定し、サイドバーとホームで同じものを使う。
+///
+/// 以前のサイドバーは種別とタグを全部並べ、数十件の保管庫ではほとんどの行が「1」の
+/// 空の器になった。固定の 6 つなら器は増えない。種別は「中身のあるものだけ」を別に並べる。
+const SECTIONS = [
+  { selection: { kind: 'all' }, label: 'すべて', icon: 'key', hue: 222 },
+  { selection: { kind: 'favorites' }, label: 'お気に入り', icon: 'starFill', hue: 44 },
+  { selection: { kind: 'codes' }, label: 'コード', icon: 'clock', hue: 150 },
+  { selection: { kind: 'category', value: 'wifi' }, label: 'Wi-Fi', icon: 'wifi', hue: 192 },
+  { selection: { kind: 'watchtower' }, label: 'セキュリティ', icon: 'shield', hue: 4 },
+  { selection: { kind: 'trash' }, label: '削除済み', icon: 'trash', hue: null },
+];
+
+/// 「種別」として並べるもの。中身のある種別だけ。Wi-Fi は固定の区分にあるので除く。
+const kindSections = () => Object.keys(V.CATEGORIES)
+  .filter(id => id !== 'wifi' && itemsFor({ kind: 'category', value: id }).length > 0)
+  .map(id => ({ selection: { kind: 'category', value: id }, label: V.CATEGORIES[id].name,
+                icon: CATEGORY_LOOK[id].icon, hue: CATEGORY_LOOK[id].hue }));
+
+const isEmptyVault = () => !activeItems().length && !trashedItems().length;
+const hueStyle = hue => (hue == null ? {} : { style: `--hue:${hue}` });
+
+/// 区分を選ぶ。狭い画面では一覧へ進む。
+export function choose(selection) {
+  state.selection = selection;
+  state.search = '';
+  state.cursor = -1;
+  if (!isSplit()) state.view = 'list';
+  noteActivity();
+  render();
+}
+
+/// 狭い画面のホームへ戻る
+export function goHome() {
+  state.view = 'home';
+  state.search = '';
+  state.cursor = -1;
+  noteActivity();
+  render();
+}
+
+/// 検索欄。広い画面では上の帯に、狭い画面ではホームと一覧の見出しの下に置く。
+function searchField() {
+  return el('input', {
     id: 'search', type: 'search', placeholder: '検索', value: state.search,
     'aria-label': '検索', enterkeyhint: 'search',
     oninput: event => {
       state.search = event.target.value;
       state.cursor = -1;
       noteActivity();
-      renderListView();
+      if (!isSplit() && state.view === 'home') {
+        // ホームで打ち始めたら、全体を対象にした一覧へ移る。打った文字と位置はそのまま。
+        state.selection = { kind: 'all' };
+        state.view = 'list';
+        render();
+        const field = $('#search');
+        field?.focus();
+        field?.setSelectionRange(field.value.length, field.value.length);
+      } else {
+        // 一覧の中身だけを描き直す。欄ごと作り直すと、打っている途中でフォーカスが消える。
+        renderResults();
+      }
     },
   });
-
-  bar.replaceChildren(
-    el('div', { className: 'brand', title: state.dirty ? '保存できていない変更があります' : '' }, [
-      icon('vault', 18),
-      el('span', { textContent: 'PassVault' }),
-      state.dirty ? el('span', { className: 'unsaved', textContent: '未保存' }) : null,
-    ]),
-    el('div', { className: 'searchwrap' }, [search]),
-    tools(el('button', { className: 'iconbtn', title: '新しい項目',
-                         'aria-label': '新しい項目', onclick: openNewItemMenu }, [icon('plus')])),
-  );
 }
 
-/// 絞り込みの札。縦のサイドバーをやめて横一列にした。
-/// 中身のある区分しか出さない。空の器が並んでも選ぶ理由がない。
-function renderChips() {
-  // 何も入っていない保管庫に「すべて 0」だけ出しても、押す理由がない
-  if (!activeItems().length && !trashedItems().length) return null;
-  const chips = [];
-  const add = (selection, label, extra) => {
-    const selected = sameSelection(selection, state.selection);
-    chips.push(el('button', {
-      className: `chip${selected ? ' sel' : ''}`,
-      'aria-pressed': String(selected),
-      onclick: () => {
-        state.selection = selection;
-        state.cursor = -1;
-        noteActivity();
-        renderListView();
-      },
-    }, [label, extra ?? null]));
+/// 広い画面のサイドバー
+function renderSidebar() {
+  const row = section => {
+    const selected = sameSelection(section.selection, state.selection);
+    const count = itemsFor(section.selection).length;
+    return el('button', {
+      className: `side-row${selected ? ' sel' : ''}`,
+      ...(selected ? { 'aria-current': 'true' } : {}),
+      onclick: () => choose(section.selection),
+    }, [
+      el('span', { className: `side-ico${section.hue == null ? ' neutral' : ''}`, 'aria-hidden': 'true',
+                   ...hueStyle(section.hue) }, [icon(section.icon, 17)]),
+      el('span', { className: 'grow', textContent: section.label }),
+      el('span', { className: 'side-n', textContent: count ? String(count) : '' }),
+    ]);
   };
 
-  // 出すのは「検索では言い表せない見方」だけにする。
-  // 種別もタグも検索語で絞れるので、札にすると器が並ぶだけになる。
-  // （実際、種別とタグを全部出したら 16 個並んで、縦のサイドバーの
-  //   散らかりを横に移しただけになった）
-  const n = (value, cls) => el('span', { className: cls ? `n ${cls}` : 'n', textContent: String(value) });
-
-  add({ kind: 'all' }, 'すべて', n(activeItems().length));
-  const favorites = itemsFor({ kind: 'favorites' }).length;
-  if (favorites) add({ kind: 'favorites' }, 'お気に入り', n(favorites));
-  if (state.findings.length) add({ kind: 'watchtower' }, '点検', n(state.findings.length, 'warn'));
-  if (trashedItems().length) add({ kind: 'trash' }, 'ゴミ箱', n(trashedItems().length));
-
-  // 種別やタグから入ってきた場合は、いま何で絞っているかを見せて戻せるようにする
-  if (state.selection.kind === 'category' || state.selection.kind === 'tag') {
-    add(state.selection, selectionTitle(state.selection), n(itemsFor(state.selection).length));
+  const parts = [el('div', { className: 'side-group' }, SECTIONS.map(row))];
+  const kinds = kindSections();
+  if (kinds.length) {
+    parts.push(el('div', { className: 'side-head', textContent: '種別' }),
+               el('div', { className: 'side-group' }, kinds.map(row)));
   }
-
-  return el('div', { className: 'chips', role: 'group', 'aria-label': '絞り込み' }, chips);
+  // タグから入ってきたときだけ、そのタグを出す（いつもは並べない。検索で絞れる）
+  if (state.selection.kind === 'tag') {
+    parts.push(el('div', { className: 'side-head', textContent: 'タグ' }),
+               el('div', { className: 'side-group' },
+                  [row({ selection: state.selection, label: state.selection.value, icon: 'tag', hue: null })]));
+  }
+  $('#main .pane-side').replaceChildren(el('nav', { className: 'side', 'aria-label': '区分' }, parts));
 }
 
+/// 狭い画面のホーム。区分のタイルと、種別の一覧。
+function renderHome() {
+  const parts = [el('h1', { className: 'large-title', textContent: 'PassVault' }), searchField()];
+
+  if (isEmptyVault()) {
+    // 何も入っていないのに 0 のタイルを並べても、押す理由がない。移行の入口を出す。
+    parts.push(firstRunBlock());
+  } else {
+    parts.push(el('div', { className: 'tiles' }, SECTIONS.map(section => {
+      const count = itemsFor(section.selection).length;
+      return el('button', {
+        className: 'tile', 'aria-label': `${section.label} ${count} 件`,
+        onclick: () => choose(section.selection),
+      }, [
+        el('span', { className: 'tile-top' }, [
+          el('span', { className: `tile-ico${section.hue == null ? ' neutral' : ''}`, 'aria-hidden': 'true',
+                       ...hueStyle(section.hue) }, [icon(section.icon, 18)]),
+          el('span', { className: 'tile-n', 'aria-hidden': 'true', textContent: String(count) }),
+        ]),
+        el('span', { className: 'tile-label', 'aria-hidden': 'true', textContent: section.label }),
+      ]);
+    })));
+
+    const kinds = kindSections();
+    if (kinds.length) {
+      parts.push(
+        el('div', { className: 'g-title', textContent: '種別' }),
+        el('div', { className: 'group' }, kinds.map(section => el('button', {
+          className: 'g-row action', onclick: () => choose(section.selection),
+        }, [
+          el('span', { className: 'avatar small', 'aria-hidden': 'true', ...hueStyle(section.hue) },
+             [icon(section.icon, 15)]),
+          el('span', { className: 'grow', textContent: section.label }),
+          el('span', { className: 'g-n', textContent: String(itemsFor(section.selection).length) }),
+          el('span', { className: 'chev', 'aria-hidden': 'true' }, [icon('chevron', 14)]),
+        ]))),
+      );
+    }
+  }
+  $('#main').replaceChildren(el('div', { className: 'sheet home' }, parts));
+}
+
+/// 初めて開いたとき。ここが移行の入口なので、受け身に「＋から」と言うだけにしない。
+function firstRunBlock() {
+  return el('div', { className: 'empty first' }, [
+    el('span', { className: 'big' }, [icon('vault', 44)]),
+    el('span', { className: 'lead', textContent: 'まだ何も入っていません' }),
+    el('span', { className: 'sub', textContent:
+      '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),
+    el('div', { className: 'cta' }, [
+      el('button', { className: 'push primary', onclick: () => hooks.importFromCSV?.() },
+         [icon('download', 16), '他のアプリから取り込む']),
+      el('button', { className: 'push', onclick: openNewItemMenu }, [icon('plus', 16), '最初の項目を追加']),
+    ]),
+    el('span', { className: 'sub small', textContent:
+      'マスターパスワードの控えは、設定の「緊急用シート」で紙に残せます。' }),
+  ]);
+}
+
+/// 一覧。見出し（と狭い画面では検索欄）は一度だけ作り、中身は renderResults が描く。
 function renderListView() {
+  // 選んでいた区分が空になったら「すべて」へ落とす（最後の 1 件を消したときなど）
+  if (!sameSelection(state.selection, { kind: 'all' }) && !state.search
+      && !itemsFor(state.selection).length && state.selection.kind !== 'trash') {
+    state.selection = { kind: 'all' };
+  }
+
+  const title = selectionTitle(state.selection);
+  const head = isSplit()
+    ? [el('div', { className: 'list-head' }, [el('h2', { textContent: title })])]
+    : [el('h1', { className: 'large-title', textContent: title }), searchField()];
+  listHost().replaceChildren(el('div', { className: 'sheet' }, [...head, el('div', { className: 'results' })]));
+  renderResults();
+}
+
+/// 一覧の中身だけを描き直す（検索で 1 文字打つたびに呼ばれる）
+function renderResults() {
+  const host = $('#main .results');
+  if (!host) { renderListView(); return; }
   const items = visibleItems();
   const isTrash = state.selection.kind === 'trash';
-
-  // 選んでいた区分が空になったら「すべて」へ落とす（最後の 1 件を消したときなど）
-  if (!sameSelection(state.selection, { kind: 'all' }) && !items.length && !state.search) {
-    const stillThere = itemsFor(state.selection).length;
-    if (!stillThere) state.selection = { kind: 'all' };
-  }
 
   // -1（まだキーボードを触っていない）はそのまま残す。
   // ここで 0 に丸めると、開いた直後から 1 行目が光って選択済みに見える。
   if (state.cursor >= 0) state.cursor = Math.min(state.cursor, items.length - 1);
 
-  const parts = [renderChips()];
-
+  const parts = [];
   if (isTrash && trashedItems().length) {
     parts.push(el('div', { className: 'listtools' }, [
-      el('button', { className: 'linkbtn', onclick: emptyTrash }, [icon('broom', 14), 'ゴミ箱を空にする']),
+      el('button', { className: 'linkbtn', onclick: emptyTrash }, [icon('broom', 14), '削除済みを空にする']),
     ]));
   }
 
@@ -1147,37 +1312,23 @@ function renderListView() {
             className: 'linkbtn', title: '並び順を切り替える',
             onclick: () => {
               settings.sort = settings.sort === 'recent' ? 'name' : 'recent';
-              renderListView();
+              renderResults();
             },
           }, [icon('sort', 14), settings.sort === 'recent' ? '更新が新しい順' : '名前順'])
         : el('span'),
       el('span', { textContent: `${items.length} 件` }),
     ]));
   } else if (!state.search && !isTrash && !activeItems().length) {
-    // 初めて開いたとき。ここが移行の入口なので、受け身に「＋から」と言うだけにしない。
-    parts.push(el('div', { className: 'empty first' }, [
-      el('span', { className: 'big' }, [icon('vault', 44)]),
-      el('span', { className: 'lead', textContent: 'まだ何も入っていません' }),
-      el('span', { className: 'sub', textContent:
-        '他のアプリを使っていたなら、書き出した CSV から一度に移せます。' }),
-      el('div', { className: 'cta' }, [
-        el('button', { className: 'push primary', onclick: () => hooks.importFromCSV?.() },
-           [icon('download', 16), '他のアプリから取り込む']),
-        el('button', { className: 'push', onclick: openNewItemMenu }, [icon('plus', 16), '最初の項目を追加']),
-      ]),
-      el('span', { className: 'sub small', textContent:
-        'マスターパスワードの控えは、設定の「緊急用シート」で紙に残せます。' }),
-    ]));
+    parts.push(firstRunBlock());
   } else {
     parts.push(el('div', { className: 'empty' }, [
       el('span', { className: 'big' }, [icon(isTrash ? 'trash' : (state.search ? 'search' : 'inbox'), 38)]),
       el('span', { className: 'lead', textContent:
-        isTrash ? 'ゴミ箱は空です'
+        isTrash ? '削除済みの項目はありません'
                 : (state.search ? `「${state.search}」に一致するものはありません` : 'この区分には何もありません') }),
     ]));
   }
-
-  listHost().replaceChildren(el('div', { className: 'sheet' }, parts));
+  host.replaceChildren(...parts);
 }
 
 async function emptyTrash() {
@@ -1207,6 +1358,21 @@ export function filterBy(selection) {
   state.view = 'list';
   noteActivity();
   render();
+}
+
+/// 保存した項目を、必ず見えるところに出す。
+///
+/// 検索欄に「git」が残ったまま「Dropbox」を保存すると、右の詳細には Dropbox が出るのに
+/// 一覧は GitHub だけ、ということが起きていた（入れた項目がどこにも見えない）。
+/// 見えない理由（検索語・区分）を外してから選ぶ。
+export function revealItem(id) {
+  state.selectedId = id;
+  if (!visibleItems().some(item => item.id === id)) {
+    state.search = '';
+    if (!itemsFor(state.selection).some(item => item.id === id)) state.selection = { kind: 'all' };
+  }
+  if (isSplit()) state.cursor = visibleItems().findIndex(item => item.id === id);
+  else state.view = 'detail';
 }
 
 export function openItem(id) {
@@ -1265,7 +1431,7 @@ function itemRow(item, index) {
   }
   if (state.findings.some(finding => finding.itemId === item.id)) {
     const mark = icon('warning', 14); mark.classList.add('warn');
-    mark.setAttribute('aria-label', '点検の指摘あり');
+    mark.setAttribute('aria-label', 'セキュリティの指摘あり');
     marks.append(mark);
   }
   if (item.isFavorite) {
@@ -1362,12 +1528,17 @@ document.addEventListener('keydown', event => {
   const split = isSplit();
 
   if (event.key === 'Escape') {
-    if (state.view === 'detail') { showList(); event.preventDefault(); return; }
+    if (!split && state.view === 'detail') { showList(); event.preventDefault(); return; }
     if (state.search) {
       state.search = '';
       state.cursor = -1;
-      renderListView();
+      // 欄の中身も消す（以前は状態だけ消して、欄には文字が残っていた）
+      if (search) search.value = '';
+      renderResults();
       search?.focus();
+      event.preventDefault();
+    } else if (!split && state.view === 'list') {
+      goHome();
       event.preventDefault();
     } else if (split && state.selectedId) {
       // 並べているときは、閉じる操作が「選択を外す」になる
@@ -1379,6 +1550,11 @@ document.addEventListener('keydown', event => {
     return;
   }
 
+  // ホームでは、文字を打てば検索へ入る（↑↓ で辿る一覧はまだ無い）
+  if (state.view === 'home' && !split) {
+    if (!typing && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) search?.focus();
+    return;
+  }
   if (state.view !== 'list') return;
 
   const items = visibleItems();
@@ -1391,7 +1567,7 @@ document.addEventListener('keydown', event => {
       // 並べているときは、動かすだけで右の詳細が追従する
       openItem(items[state.cursor].id);
     } else {
-      renderListView();
+      renderResults();
     }
     $('.item-row.cur')?.scrollIntoView({ block: 'nearest' });
     event.preventDefault();

@@ -58,6 +58,7 @@
      緑〜黄緑は同じ明度でも人の目に明るく映るので、文字を濃くしてある（L 32% では 4.1:1 しか出なかった）。 */
   --tile-bg-s: 80%;  --tile-bg-l: 92%;
   --tile-fg-s: 62%;  --tile-fg-l: 26%;
+  --side-l: 44%;   /* サイドバーの印の明るさ */
 
   --ease: cubic-bezier(.32, .72, 0, 1);
 
@@ -70,6 +71,7 @@
   --fs-4: 15px;   /* 本文・一覧の題名 */
   --fs-5: 18px;   /* 小見出し・案内の主文 */
   --fs-6: 24px;   /* 画面の見出し */
+  --fs-7: 30px;   /* 大きな見出し（iOS の Large Title）。ホームと一覧の頭だけに使う */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -101,6 +103,7 @@
 
     --tile-bg-s: 40%;  --tile-bg-l: 24%;
     --tile-fg-s: 85%;  --tile-fg-l: 80%;
+    --side-l: 66%;
   }
 }
 
@@ -134,7 +137,7 @@ a { color: var(--accent, var(--accent-fallback)); text-underline-offset: 2px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .chip, .item-row, .iconbtn, .push, .quick, .tag, .pill, dialog {
+  .side-row, .tile, .item-row, .iconbtn, .push, .quick, .tag, .pill, dialog {
     transition: background-color .13s var(--ease), color .13s var(--ease),
                 box-shadow .13s var(--ease), opacity .13s var(--ease);
   }
@@ -263,11 +266,20 @@ textarea.field { resize: vertical; line-height: 1.6; }
   font-size: var(--fs-3); font-weight: 500;
 }
 .backbtn:hover { background: var(--hover); }
+.brand { flex: 1; }
+#bar { position: relative; }
 .bar-title {
-  flex: 1; text-align: center; font-size: var(--fs-3); font-weight: 550;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  max-width: 44%; text-align: center; font-size: var(--fs-4); font-weight: 600;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 0 8px;
+  opacity: 0; pointer-events: none;
 }
+#bar.scrolled .bar-title { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .bar-title { transition: opacity .18s var(--ease); }
+}
+/* 戻るボタンの右は空ける。道具は右端に寄せる */
+.backbtn + .bar-title + .bar-tools { margin-left: auto; }
 
 .iconbtn {
   background: none; border: none; padding: 8px; border-radius: var(--r-small);
@@ -282,23 +294,60 @@ textarea.field { resize: vertical; line-height: 1.6; }
 /* 中身はひとつの柱にまとめて中央に置く。端まで広げると視線が泳ぐ。 */
 .sheet { max-width: 720px; margin: 0 auto; padding: 22px 20px 64px; }
 
-/* ---------- 区分の札 ---------- */
+/* ---------- 大きな見出し・ホームのタイル ---------- */
+/*
+ * Apple の「パスワード」に倣った作り。狭い画面ではホーム（区分のタイル）→ 一覧 → 詳細と進む。
+ * 大きな見出しはスクロールで隠れると、上の帯に小さく題名が出る。
+ */
 
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 4px 12px; border-radius: 999px;
-  border: 0.5px solid var(--hairline-strong); background: transparent;
-  color: var(--text-2); font-size: var(--fs-3);
+.large-title {
+  font-size: var(--fs-7); font-weight: 700; line-height: 1.15; letter-spacing: -0.022em;
+  margin: 4px 4px 12px;
 }
-.chip:hover { background: var(--hover); color: var(--text); }
-.chip .n { font-size: var(--fs-2); color: var(--text-2); font-variant-numeric: tabular-nums; }
-.chip .n.warn { color: var(--warn); font-weight: 600; }
-.chip.sel {
-  background: var(--selected); border-color: transparent;
-  color: var(--accent, var(--accent-fallback)); font-weight: 550;
+.sheet > #search { max-width: none; margin: 0 0 20px; }
+
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 28px; }
+@media (min-width: 560px) { .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.tile {
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+  padding: 12px 14px; border-radius: var(--r-medium); text-align: left; color: var(--text);
+  background: var(--content); border: 0.5px solid var(--hairline); box-shadow: var(--shadow-raised);
 }
-.chip.sel .n { color: color-mix(in srgb, currentColor 66%, transparent); }
+.tile:hover { background: color-mix(in srgb, var(--content) 94%, var(--text) 6%); }
+.tile-top { display: flex; align-items: center; justify-content: space-between; }
+/* 区分の印は、Apple の作法どおり色の丸に白の線画。色は区分ごとに固定。 */
+.tile-ico {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  color: #fff; background: hsl(var(--hue) 62% 50%);
+}
+.tile-ico.neutral { background: #8e8e93; }
+.tile-n { font-size: var(--fs-6); font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile-label { font-size: var(--fs-3); font-weight: 600; color: var(--text-2); }
+.g-n { color: var(--text-2); font-size: var(--fs-3); font-variant-numeric: tabular-nums; }
+
+/* ---------- サイドバー（広い画面） ---------- */
+
+.pane-side {
+  background: var(--bar);
+  -webkit-backdrop-filter: blur(28px) saturate(180%); backdrop-filter: blur(28px) saturate(180%);
+  border-right: 0.5px solid var(--hairline);
+  padding: 16px 10px 32px;
+}
+.side-head { font-size: var(--fs-1); font-weight: 600; color: var(--text-2); margin: 20px 10px 6px; }
+.side-group { display: grid; gap: 2px; }
+.side-row {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 6px 10px; border: none; background: none; border-radius: var(--r-small);
+  color: var(--text); text-align: left;
+}
+.side-row:hover { background: var(--hover); }
+.side-row.sel { background: var(--selected); font-weight: 550; }
+.side-ico { display: grid; color: hsl(var(--hue) 62% var(--side-l)); }
+.side-ico.neutral { color: var(--text-2); }
+.side-n { font-size: var(--fs-2); color: var(--text-2); font-variant-numeric: tabular-nums; }
+
+.list-head { display: flex; align-items: baseline; justify-content: space-between; margin: 4px 4px 12px; }
+.list-head h2 { font-size: var(--fs-5); font-weight: 700; margin: 0; letter-spacing: -0.012em; }
 
 .listtools { display: flex; justify-content: flex-end; margin: -8px 0 10px; }
 .linkbtn {
@@ -667,10 +716,10 @@ select.field {
  */
 
 #main.split {
-  display: grid; grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
+  display: grid; grid-template-columns: 220px minmax(300px, 360px) minmax(0, 1fr);
   overflow: hidden;
 }
-.pane-list, .pane-detail { min-height: 0; overflow-y: auto; }
+.pane-side, .pane-list, .pane-detail { min-height: 0; overflow-y: auto; }
 .pane-list { border-right: 0.5px solid var(--hairline); background: var(--window); }
 .pane-list .sheet { max-width: none; margin: 0; padding: 20px 16px 48px; }
 .pane-detail { background: var(--content); }
@@ -695,20 +744,11 @@ select.field {
   .field, select.field { min-height: 44px; }
   .push { min-height: 44px; }
 
-  /* 札は見た目を保ち、押せる範囲だけ上下へ広げる */
-  .chips { gap: 8px; }
-  .chip { position: relative; min-height: 34px; }
-  .chip::after { content: ''; position: absolute; inset: -6px -2px; }
-
-  /* 上の帯は 2 段にする。1 段目に名前と道具、2 段目に検索。
-     44px の道具を 4 つ並べると検索欄が 110px 前後に潰れるため。
-     検索はこのアプリの主役なので、狭くしない。 */
-  #bar { flex-wrap: wrap; row-gap: 4px; padding: 8px 12px 12px; min-height: 0; }
-  .brand { order: 1; flex: 1; }
-  .bar-tools { order: 2; }
-  .searchwrap { order: 3; flex: 1 0 100%; }
-  #search { max-width: none; min-height: 44px; }
-  /* 詳細のときの帯は 1 段のまま（検索が無い） */
-  .backbtn { order: 0; }
-  .bar-title { order: 1; }
+  /* 狭い画面では検索は帯ではなく大きな見出しの下にあるので、帯は 1 段でよい */
+  #bar { padding: 6px 8px; min-height: 56px; }
+  /* 帯の題名と道具が重ならないよう、道具を減らし、題名の幅を左右の空きに収める */
+  .gen-tool { display: none; }
+  .bar-title { max-width: calc(100% - 288px); }
+  #search { min-height: 44px; }
+  .side-row { min-height: 44px; }
 }

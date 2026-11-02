@@ -856,10 +856,6 @@ try {
   check('主な領域に目印がある',
         document.getElementById('main').getAttribute('role') === 'main'
         && document.getElementById('bar').getAttribute('role') === 'banner');
-  const chipsNow = [...document.querySelectorAll('.chip')];
-  check('選択中の札が伝わる（aria-pressed）',
-        chipsNow[0].getAttribute('aria-pressed') === 'true'
-        && chipsNow.slice(1).every(chip => chip.getAttribute('aria-pressed') === 'false'));
   check('コピー釦は Tab の停止点にしない（行ごとに 1 つに保つ）',
         [...document.querySelectorAll('.quick')].every(node => node.getAttribute('tabindex') === '-1'));
   check('コピー釦には、どの項目か分かる名前がある',
@@ -879,7 +875,7 @@ try {
   App.render();
   check('空の保管庫では、取り込みと追加の入口を出す',
         !!document.querySelector('.empty.first') && document.querySelectorAll('.empty .cta .push').length === 2);
-  check('空の保管庫に「すべて 0」の札だけを出さない', document.querySelectorAll('.chip').length === 0);
+  check('空の保管庫では、0 件のタイルを並べず案内を出す', document.querySelectorAll('.tile').length === 0);
   let importCalled = false;
   App.hooks.importFromCSV = () => { importCalled = true; };
   document.querySelector('.empty .cta .push.primary').click();
@@ -1001,6 +997,148 @@ section('コピーと、その場の手応え');
     App.state.view = 'list';
     App.state.selectedId = null;
     App.state.revealed.clear();
+  }
+}
+
+// ============================================================
+section('Apple の「パスワード」に倣った構造');
+// ============================================================
+// 狭い画面はホーム（区分のタイル）→ 一覧 → 詳細。広い画面はサイドバー・一覧・詳細の 3 列。
+{
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const key = (name, extra = {}) =>
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, ...extra }));
+  const withCode = makeLogin('GitHub', 'g1'); withCode.oneTimePasswordSecret = 'JBSWY3DPEHPK3PXP';
+  const plain = makeLogin('Amazon', 'a1');
+  const card = V.makeItem('creditCard'); card.title = 'カード';
+  const realAsk = App.hooks.askConfirm;
+
+  try {
+    App.state.header = V.makeHeader(1000);
+    App.state.key = await V.deriveKey('apple-pass', App.state.header);
+    App.state.items = [withCode, plain, card];
+    App.state.deletions = [];
+    App.state.findings = [];
+    App.state.selection = { kind: 'all' };
+    App.state.search = '';
+    App.state.selectedId = null;
+    App.state.cursor = -1;
+    App.state.holds = 0;
+
+    // --- 狭い画面 ---
+    App.layoutOverride.wide = false;
+    App.state.view = 'home';
+    App.render();
+    const tiles = [...document.querySelectorAll('#main .tile')];
+    check('ホームに固定の 6 区分がタイルで並ぶ', tiles.length === 6);
+    check('タイルの名前に件数が入る（読み上げ用）', tiles[0].getAttribute('aria-label') === 'すべて 3 件');
+    check('コードの区分は、ワンタイムパスワードを持つ項目だけを数える',
+          tiles.find(t => t.getAttribute('aria-label').startsWith('コード')).getAttribute('aria-label') === 'コード 1 件');
+    const kindRows = [...document.querySelectorAll('#main .home .g-row.action .grow')].map(n => n.textContent);
+    check('種別は中身のあるものだけ並ぶ（空の器を並べない）',
+          JSON.stringify(kindRows) === JSON.stringify(['ログイン', 'クレジットカード']));
+    check('ホームの見出しは大きな見出し', document.querySelector('#main h1.large-title')?.textContent === 'PassVault');
+
+    tiles.find(t => t.getAttribute('aria-label').startsWith('コード')).click();
+    check('タイルを押すと、その区分の一覧へ進む',
+          App.state.view === 'list' && document.querySelector('#main h1.large-title')?.textContent === 'コード'
+          && document.querySelectorAll('#main .item-row').length === 1);
+    check('一覧の帯には、ホームへの戻るボタンがある',
+          document.querySelector('#bar .backbtn')?.getAttribute('aria-label') === 'PassVaultへ戻る');
+
+    key('Escape');
+    await wait(20);
+    check('一覧で Esc を押すとホームへ戻る', App.state.view === 'home');
+
+    // ホームで打ち始めたら、全体の一覧へ移り、打った文字と位置はそのまま
+    const homeSearch = document.getElementById('search');
+    homeSearch.focus();
+    homeSearch.value = 'ama';
+    homeSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(20);
+    const listSearch = document.getElementById('search');
+    check('ホームで検索を打つと、全体の一覧へ移る',
+          App.state.view === 'list' && App.state.selection.kind === 'all'
+          && [...document.querySelectorAll('#main .item-row .t')].map(n => n.textContent).join() === 'Amazon');
+    check('移っても検索欄にフォーカスが残り、打った文字が残る',
+          document.activeElement === listSearch && listSearch.value === 'ama');
+    listSearch.value = 'amaz';
+    listSearch.dispatchEvent(new Event('input', { bubbles: true }));
+    check('一覧で打ち続けても、検索欄が作り直されない（フォーカスが消えない）',
+          document.activeElement === listSearch);
+
+    key('Escape');
+    await wait(20);
+    check('検索があるときの Esc は、検索を消し、欄の中身も消す',
+          App.state.search === '' && document.getElementById('search').value === '' && App.state.view === 'list');
+
+    // --- 保存した項目が、必ず見えるところに出る ---
+    App.state.search = 'git';
+    App.render();
+    const fresh = makeLogin('Dropbox', 'd1');
+    App.state.items.push(fresh);
+    App.revealItem(fresh.id);
+    App.render();
+    check('検索語が残っていても、保存した項目が見えるように検索を外す', App.state.search === '');
+    check('狭い画面では、保存した項目の詳細を出す',
+          App.state.view === 'detail' && document.querySelector('#main h1')?.textContent === 'Dropbox');
+
+    // --- 広い画面: 3 列 ---
+    App.layoutOverride.wide = true;
+    App.state.selection = { kind: 'codes' };
+    App.state.search = 'git';
+    App.render();
+    check('広い画面はサイドバー・一覧・詳細の 3 列',
+          !!document.querySelector('#main .pane-side .side') && !!document.querySelector('.pane-list')
+          && !!document.querySelector('.pane-detail'));
+    check('サイドバーで選ばれている区分が伝わる（aria-current）',
+          document.querySelectorAll('.side-row[aria-current="true"]').length === 1
+          && document.querySelector('.side-row.sel .grow').textContent === 'コード');
+    App.revealItem(fresh.id);
+    App.render();
+    check('広い画面でも、保存した項目が一覧に見える（区分と検索を外して選ぶ）',
+          [...document.querySelectorAll('.pane-list .item-row .t')].map(n => n.textContent).includes('Dropbox')
+          && document.querySelector('.item-row.open .t')?.textContent === 'Dropbox');
+    check('サイドバーの区分を押すと、その区分に切り替わる', (() => {
+      [...document.querySelectorAll('.side-row')].find(r => r.textContent.includes('すべて')).click();
+      return App.state.selection.kind === 'all';
+    })());
+
+    // --- 編集で Enter を押すと確定する ---
+    App.layoutOverride.wide = false;
+    App.hooks.askConfirm = async () => true;
+    App.hooks.openEditor(plain);
+    let dialog = document.querySelector('dialog[open]');
+    const titleInput = dialog.querySelector('.dlg-body input');
+    titleInput.value = 'Amazon JP';
+    titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+    // 日本語の変換を確定する Enter では保存しない
+    titleInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, isComposing: true }));
+    await wait(30);
+    check('日本語の変換中の Enter では保存しない', !!document.querySelector('dialog[open]') && plain.title === 'Amazon');
+    // ボタンにフォーカスがあるときの Enter でも確定しない
+    dialog.querySelector('.dlg-head button').dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(30);
+    check('ボタンの上の Enter では確定しない', plain.title === 'Amazon');
+    titleInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    for (let i = 0; i < 20 && document.querySelector('dialog[open]'); i++) await wait(50);
+    check('文字欄で Enter を押すと保存される',
+          !document.querySelector('dialog[open]')
+          && App.state.items.find(i => i.id === plain.id).title === 'Amazon JP');
+  } finally {
+    App.hooks.askConfirm = realAsk;
+    App.layoutOverride.wide = null;
+    for (const open of document.querySelectorAll('dialog[open]')) open.close();
+    App.state.key = null;
+    App.state.header = null;
+    App.state.items = [];
+    App.state.selection = { kind: 'all' };
+    App.state.search = '';
+    App.state.view = 'list';
+    App.state.selectedId = null;
+    document.getElementById('main').classList.remove('split');
+    document.getElementById('main').replaceChildren();
   }
 }
 
@@ -1217,7 +1355,7 @@ section('デザインの尺度（style.css とテーマ）');
     lines(name).forEach((line, index) => {
       const where = `${name}:${index + 1} ${line.trim().slice(0, 70)}`;
       for (const m of line.matchAll(/font-size:\s*([^;}]+)/g)) {
-        if (!/^var\(--fs-[1-6]\)$/.test(m[1].trim())) offenders.fontSize.push(where);
+        if (!/^var\(--fs-[1-7]\)$/.test(m[1].trim())) offenders.fontSize.push(where);
       }
       // 短縮形の px。SVG の文字（輪の中の秒数）だけは例外にする
       for (const m of line.matchAll(/(?:^|[;{\s])font:\s*[^;}]*?\d+(?:\.\d+)?px/g)) {
@@ -1239,10 +1377,11 @@ section('デザインの尺度（style.css とテーマ）');
     for (const where of list.slice(0, 5)) note(`  外れ: ${where}`);
   }
 
-  const tokens = [...strip(sources['style.css']).matchAll(/--fs-([1-6]):\s*(\d+)px/g)]
+  const tokens = [...strip(sources['style.css']).matchAll(/--fs-([1-7]):\s*(\d+)px/g)]
     .map(m => Number(m[2]));
-  check('文字の尺度は 6 段で、昇順に並ぶ',
-        tokens.length === 6 && tokens.every((value, i) => i === 0 || value > tokens[i - 1]));
+  // 7 段目は大きな見出し（iOS の Large Title）のために足した。ホームと一覧の頭だけに使う
+  check('文字の尺度は 7 段で、昇順に並ぶ',
+        tokens.length === 7 && tokens.every((value, i) => i === 0 || value > tokens[i - 1]));
 }
 
 // ============================================================

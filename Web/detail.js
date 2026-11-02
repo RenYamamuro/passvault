@@ -5,7 +5,7 @@ import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
-  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost,
+  state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost, revealItem,
   readVaultFileBytes, applyMerge,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
@@ -357,7 +357,7 @@ function openEditor(original, isNew = false) {
     } else {
       state.items.push(draft);
     }
-    state.selectedId = draft.id;
+    revealItem(draft.id);
     if (!await save()) return false;   // 失敗したらダイアログを閉じない
     toast('保存しました');
     render();
@@ -611,6 +611,7 @@ hooks.openSettings = function () {
         awaySwitch,
       ]),
       actionRow('note', '緊急用シートを作る', () => { dialog.close(); openEmergencyKit(); }),
+      actionRow('dice', 'パスワードを作る', () => { dialog.close(); hooks.openGenerator(); }),
     ]),
     el('div', { className: 'g-foot', textContent:
       'マスターパスワードを忘れると中身は永久に取り出せません。復旧の窓口はありません。'
@@ -1219,9 +1220,6 @@ hooks.askText = function (title, label, { placeholder = '', initial = '', confir
         ]),
       ]),
     );
-    input.onkeydown = event => {
-      if (event.key === 'Enter') dialog.querySelector('.dlg-head button:last-child')?.click();
-    };
     dialog.showModal();
     setTimeout(() => input.focus(), 0);
   });
@@ -1293,6 +1291,24 @@ function makeDialog(title, onConfirm, confirmLabel = '保存') {
   dialog.close = (...args) => {
     try { nativeClose(...args); } finally { finish(); }
   };
+  // 文字を打つ欄で Enter を押したら確定する。最後だけマウスで「保存」へ手を伸ばさずに済む。
+  //   ・日本語の変換中の Enter（変換の確定）では反応しない。ここを取り違えると、
+  //     タイトルを打っている途中で保存されてしまう
+  //   ・ボタンにフォーカスがあるときは反応しない（「キャンセル」で Enter を押して確定される事故を防ぐ）
+  //   ・複数行の欄（メモ）は改行が要るので、⌘Enter / Ctrl+Enter のときだけ
+  if (onConfirm) {
+    dialog.addEventListener('keydown', event => {
+      if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || event.shiftKey) return;
+      const target = event.target;
+      const singleLine = target.tagName === 'INPUT'
+        && ['text', 'password', 'search', 'email', 'url', 'tel'].includes(target.type);
+      const multiLine = target.tagName === 'TEXTAREA' && (event.metaKey || event.ctrlKey);
+      if (!singleLine && !multiLine) return;
+      event.preventDefault();
+      confirmButton.click();
+    });
+  }
+
   // Esc で閉じられた場合の保険（発火する環境ではこちらが働く）。
   // 変更を抱えているときは閉じさせず、確認を挟む。
   dialog.addEventListener('cancel', event => {
