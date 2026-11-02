@@ -119,6 +119,8 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+/* 解錠後はページ自体を動かさない。流れるのは #main の中だけ。 */
+body:has(#app.on) { overflow: hidden; }
 
 body {
   margin: 0;
@@ -222,7 +224,9 @@ textarea.field { resize: vertical; line-height: 1.6; }
 
 /* ---------- 全体の骨格 ---------- */
 
-#app { display: none; height: 100vh; grid-template-rows: auto 1fr; }
+/* 100vh は iPhone では見えている高さより大きく、ページ全体がずれて帯が上へ逃げる。
+   見えている高さ（dvh）に合わせ、ページそのものは動かさず、中の #main だけを流す。 */
+#app { display: none; height: 100vh; height: 100dvh; grid-template-rows: auto 1fr; }
 #app.on { display: grid; }
 
 /* 上の帯。検索がこのアプリの主役なので、いちばん広い場所を与える。 */

@@ -1586,6 +1586,8 @@ section('iPhone の時刻表示との重なり');
         barRules.every(body => /padding-top:\s*calc\([^;]*env\(safe-area-inset-top/.test(body)));
   const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
   check('配信版は画面の端まで使う設定（だからずらしが要る）', site.includes('viewport-fit=cover'));
+  check('アプリの高さは見えている高さ（dvh）', /#app\s*\{[^}]*height:\s*100dvh/.test(css));
+  check('解錠後はページ自体を動かさない', /body:has\(#app\.on\)\s*\{\s*overflow:\s*hidden/.test(css));
 }
 
 // ============================================================

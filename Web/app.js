@@ -1009,6 +1009,13 @@ export function render() {
     renderGate(state.pendingBytes ? 'unlock' : 'create');
     return;
   }
+  if (!$('#app').classList.contains('on')) {
+    // 入口から入った直後。iPhone ではパスワードを打つあいだキーボードが
+    // ページ全体を上へ押し上げ、閉じてもそのまま残る。放っておくと
+    // 上の帯（＋・設定・ロック）が画面の外に出たままになる。
+    document.activeElement?.blur?.();
+    window.scrollTo(0, 0);
+  }
   $('#gate').style.display = 'none';
   $('#app').classList.add('on');
 
@@ -1503,6 +1510,15 @@ setInterval(async () => {
 
 // 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
 setInterval(() => { pollRemoteChange(); }, 15_000);
+
+// iPhone でキーボードを閉じたあと、押し上げられたページが戻らないことがある。
+// 入力欄から離れて、次の入力欄に移っていなければ、ページを元の位置に戻す。
+document.addEventListener('focusout', () => {
+  setTimeout(() => {
+    if (!state.key || document.activeElement?.matches?.('input, textarea, select')) return;
+    if (window.scrollY !== 0) window.scrollTo(0, 0);
+  }, 60);
+});
 
 document.addEventListener('visibilitychange', () => {
   // 画面に戻ってきたときは、待たずに一度見る。
