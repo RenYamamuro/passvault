@@ -235,6 +235,11 @@ textarea.field { resize: vertical; line-height: 1.6; }
 #bar {
   display: flex; align-items: center; gap: 14px;
   padding: 12px 18px; min-height: 62px;
+  /* ホーム画面から開くと、時刻や電池の表示の裏まで画面が広がる（viewport-fit=cover）。
+     帯の中身はその下へずらす。ずらさないと設定やロックのボタンが押せない。 */
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
+  padding-left: calc(18px + env(safe-area-inset-left, 0px));
+  padding-right: calc(18px + env(safe-area-inset-right, 0px));
   background: var(--bar);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
@@ -660,7 +665,8 @@ select.field {
 .mobile-only { display: none; }
 
 @media (max-width: 720px) {
-  #bar { padding: 10px 12px; gap: 8px; min-height: 58px; flex-wrap: wrap; }
+  #bar { padding: 10px 12px; gap: 8px; min-height: 58px; flex-wrap: wrap;
+         padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
   .sheet { padding: 18px 14px 64px; }
   .detail-head .avatar { width: 50px; height: 50px; }
   .detail-head h1 { font-size: var(--fs-6); }
@@ -757,7 +763,8 @@ select.field {
   .push { min-height: 44px; }
 
   /* 狭い画面では検索は帯ではなく大きな見出しの下にあるので、帯は 1 段でよい */
-  #bar { padding: 6px 8px; min-height: 56px; }
+  #bar { padding: 6px 8px; min-height: 56px;
+         padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
   /* 帯の題名と道具が重ならないよう、道具を減らし、題名の幅を左右の空きに収める */
   .gen-tool { display: none; }
   .bar-title { max-width: calc(100% - 288px); }
@@ -782,7 +789,7 @@ select.field {
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "951de1785787";</script>
+<script>window.PASSVAULT_BUILD = "ac2d856688b1";</script>
 <script>
 
 // ===== core.js =====

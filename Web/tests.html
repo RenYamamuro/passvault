@@ -1574,6 +1574,20 @@ section('Google Drive との同期（通信部分）');
   check('開発用ページも同じ制限', csp !== '' && devPage.includes(csp));
 }
 
+// ============================================================
+section('iPhone の時刻表示との重なり');
+// ============================================================
+{
+  const css = await (await fetch('style.css', { cache: 'no-store' })).text();
+  const barRules = [...css.matchAll(/#bar\s*\{([^}]*)\}/g)].map(match => match[1])
+    .filter(body => /padding\s*:/.test(body));
+  check('帯の余白を決める規則が 3 つある（広い・中・狭い）', barRules.length === 3);
+  check('どの幅でも帯を時刻表示の下へずらす',
+        barRules.every(body => /padding-top:\s*calc\([^;]*env\(safe-area-inset-top/.test(body)));
+  const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
+  check('配信版は画面の端まで使う設定（だからずらしが要る）', site.includes('viewport-fit=cover'));
+}
+
 } catch (error) {
   lines.push(`\n<span class="fail">例外で停止: ${error.message}</span>`);
   out.innerHTML = lines.join('\n');
