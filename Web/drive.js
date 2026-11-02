@@ -11,7 +11,7 @@
 // 触れず、利用者の Drive にある他のファイルは読めも書けもしない。
 
 /// Google Cloud で作った OAuth クライアントの ID。空のあいだは同期の項目を出さない。
-export const DRIVE_CLIENT_ID = '';
+export const DRIVE_CLIENT_ID = '514737616951-6cgnvfqlak3cq053g7i8asnvcte3vsru.apps.googleusercontent.com';
 
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const DRIVE_FILE_NAME = 'vault.pvlt';
