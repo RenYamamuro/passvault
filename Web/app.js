@@ -568,6 +568,15 @@ function renderGate(mode) {
   gate.style.display = 'grid';
   $('#app').classList.remove('on');
   const card = mode === 'create' ? createCard() : unlockCard();
+  // 解錠の画面から作成へ来たときの帰り道。無いと、保管庫があるのに戻れない。
+  if (mode === 'create' && state.pendingBytes) {
+    card.append(el('div', { style: 'height:8px' }),
+      el('button', { className: 'push', textContent: 'ロック画面に戻る', onclick: () => renderGate('unlock') }));
+  }
+  // 解錠前でも版が分かるように。画面の不具合で設定に届かないとき、確かめる手段がこれしかない。
+  if (window.PASSVAULT_BUILD) {
+    card.append(el('p', { className: 'gate-version', textContent: `版 ${window.PASSVAULT_BUILD}` }));
+  }
   gate.replaceChildren(card);
   // 前回の保管庫があれば、あとから差し込む（IndexedDB の読みは非同期なので）
   if (!state.pendingBytes) offerRememberedVault(card);
@@ -609,11 +618,17 @@ async function offerRememberedVault(card) {
   offerButton(card, button);
 }
 
+/// 利用者が自分で「新しい保管庫をつくる」を選んだか。
+/// 選んでいないのに作成の画面から始めると、保管庫があるのに毎回
+/// 「保管庫をつくる」と出て、ボタンを探して押し直すことになる。
+let choseCreate = false;
+
 /// ファイルに書けない環境（iOS の Safari など）で、この端末に置いた保管庫を出す。
 async function offerLocalVault(card) {
   if (state.pendingBytes) return;
   const local = await loadLocalVault();
   if (!local?.bytes) return;
+  if (state.pendingBytes || state.key || !card.isConnected) return;  // 読んでいる間に画面が進んだ
 
   const when = local.savedAt ? fmtDateTime(local.savedAt) : '時刻不明';
   const button = el('button', { className: 'push',
@@ -626,6 +641,9 @@ async function offerLocalVault(card) {
     state.pendingBytes = new Uint8Array(local.bytes);
     renderGate('unlock');
   };
+  // この端末に保管庫があるなら、そのまま解錠の画面へ進む。
+  // ファイルの場合と違って、開くのに利用者の操作（許可）が要らない。
+  if (!choseCreate) { button.onclick(); return; }
   offerButton(card, button);
 }
 
@@ -669,9 +687,10 @@ function unlockCard() {
     el('div', { style: 'height:8px' }),
     el('button', { className: 'push', textContent: '別の保管庫ファイルを開く', onclick: pickVaultFile }),
     el('div', { style: 'height:8px' }),
-    el('button', { className: 'push', textContent: '新しい保管庫をつくる', onclick: () => renderGate('create') }),
-    // 解錠前でも版が分かるように。画面の不具合で設定に届かないとき、確かめる手段がこれしかない。
-    window.PASSVAULT_BUILD ? el('p', { className: 'gate-version', textContent: `版 ${window.PASSVAULT_BUILD}` }) : null,
+    el('button', { className: 'push', textContent: '新しい保管庫をつくる', onclick: () => {
+      choseCreate = true;
+      renderGate('create');
+    } }),
   ]);
 
   async function submit() {
