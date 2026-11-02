@@ -1356,7 +1356,8 @@ section('デザインの尺度（style.css とテーマ）');
     lines(name).forEach((line, index) => {
       const where = `${name}:${index + 1} ${line.trim().slice(0, 70)}`;
       for (const m of line.matchAll(/font-size:\s*([^;}]+)/g)) {
-        if (!/^var\(--fs-[1-7]\)$/.test(m[1].trim())) offenders.fontSize.push(where);
+        // --fs-input は iPhone の入力欄の拡大を止めるための 16px（style.css の末尾）
+        if (!/^var\(--fs-([1-7]|input)\)$/.test(m[1].trim())) offenders.fontSize.push(where);
       }
       // 短縮形の px。SVG の文字（輪の中の秒数）だけは例外にする
       for (const m of line.matchAll(/(?:^|[;{\s])font:\s*[^;}]*?\d+(?:\.\d+)?px/g)) {
@@ -1587,6 +1588,8 @@ section('iPhone の時刻表示との重なり');
   const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
   check('配信版は画面の端まで使う設定（だからずらしが要る）', site.includes('viewport-fit=cover'));
   check('アプリの高さは見えている高さ（dvh）', /#app\s*\{[^}]*height:\s*100dvh/.test(css));
+  check('指で触る画面では入力欄を 16px にする（iPhone の自動拡大を止める）',
+        /@media \(pointer: coarse\)\s*\{[^}]*--fs-input:\s*16px;[^}]*\}\s*input, textarea, select\s*\{\s*font-size:\s*var\(--fs-input\)/.test(css));
   check('解錠後はページ自体を動かさない', /body:has\(#app\.on\)\s*\{\s*overflow:\s*hidden/.test(css));
 }
 

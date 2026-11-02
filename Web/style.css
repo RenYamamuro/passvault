@@ -770,3 +770,12 @@ select.field {
   #search { min-height: 44px; }
   .side-row { min-height: 44px; }
 }
+
+/* iPhone の Safari は、文字が 16px 未満の入力欄に触れると画面を拡大し、
+   キーボードを閉じても戻さない。解錠のパスワード欄（15px）で拡大されたまま
+   ホームに入り、左端の印が切れて帯の道具がずれていた。
+   指で触る画面だけ、入力欄の文字を 16px にする。尺度の外だが、これだけは例外。 */
+@media (pointer: coarse) {
+  :root { --fs-input: 16px; }
+  input, textarea, select { font-size: var(--fs-input); }
+}
