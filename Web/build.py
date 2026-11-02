@@ -11,6 +11,7 @@ site/ には本体のほかに manifest / service worker / アイコンが入る
 iPhone で使うにはこちらが要る（単一 HTML を file:// で開いても保存領域が使えない）。
 """
 
+import base64
 import hashlib
 import json
 import os
@@ -253,6 +254,11 @@ def main() -> int:
                 chunks.append(f"const {alias} = {{ {', '.join(exported)} }};\n")
 
     style = (HERE / "style.css").read_text(encoding="utf-8")
+    # 同梱のフォントを埋め込む。配信版は 1 枚の HTML を棚に置くので、別ファイルだと
+    # 電波が無いときや PassVault.html を直接開いたときに読めない。
+    for font in sorted((HERE / "fonts").glob("*.woff2")):
+        encoded = base64.b64encode(font.read_bytes()).decode("ascii")
+        style = style.replace(f'url("fonts/{font.name}")', f'url("data:font/woff2;base64,{encoded}")')
     style += "\n\n/* ===== " + THEME + " ===== */\n"
     style += (HERE / THEME).read_text(encoding="utf-8")
     script = "".join(chunks)

@@ -1623,6 +1623,10 @@ section('Keystone の配色');
     check(`${mode}: 警告が地の上で読める`, ratio(warn, content) >= 4.5);
   }
   check('OS のアクセント色には頼らない', !/:\s*AccentColor/.test(css));
+  check('文字は LIFT LOG・MEAL LOG と同じ丸い書体', css.includes('"JP Rounded", ui-rounded, "Nunito"'));
+  const shipped = await (await fetch('site/index.html', { cache: 'no-store' })).text();
+  check('配信版はフォントを埋め込んでいる（電波が無くても効く）',
+        shipped.includes('data:font/woff2;base64') && !shipped.includes('url("fonts/'));
 }
 
 } catch (error) {
