@@ -176,6 +176,7 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
 .gate-card { width: 100%; max-width: 380px; text-align: center; }
 .gate-card h1 { font-size: var(--fs-6); font-weight: 600; line-height: 1.2; margin: 20px 0 8px; }
 .gate-card p.lead { color: var(--text-2); margin: 0 0 28px; font-size: var(--fs-4); line-height: 1.55; }
+.gate-card p.gate-version { color: var(--text-2); font-size: var(--fs-2); margin: 20px 0 0; }
 .gate-mark { color: var(--accent, var(--accent-fallback)); display: flex; justify-content: center; }
 
 .field {

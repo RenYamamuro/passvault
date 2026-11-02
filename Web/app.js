@@ -670,6 +670,8 @@ function unlockCard() {
     el('button', { className: 'push', textContent: '別の保管庫ファイルを開く', onclick: pickVaultFile }),
     el('div', { style: 'height:8px' }),
     el('button', { className: 'push', textContent: '新しい保管庫をつくる', onclick: () => renderGate('create') }),
+    // 解錠前でも版が分かるように。画面の不具合で設定に届かないとき、確かめる手段がこれしかない。
+    window.PASSVAULT_BUILD ? el('p', { className: 'gate-version', textContent: `版 ${window.PASSVAULT_BUILD}` }) : null,
   ]);
 
   async function submit() {
