@@ -32,6 +32,7 @@ import * as V from './core.js';
 import * as X from './crypto-extras.js';
 import * as A from './audit.js';
 import * as C from './csv.js';
+import * as D from './drive.js';
 
 const out = document.getElementById('out');
 const lines = [];
@@ -1460,6 +1461,118 @@ check('カードは 6 欄', V.makeItem('creditCard').fields.length === 6);
 check('新規項目は必ず別の ID になる', V.makeItem().id !== V.makeItem().id);
 check('TOTP を持てる種別が 2 つ',
       Object.values(V.CATEGORIES).filter(c => c.otp).length === 2);
+
+// ============================================================
+section('Google Drive との同期（通信部分）');
+// ============================================================
+{
+  const STATE = 'passvault.drive.state', TOKEN = 'passvault.drive.token', PENDING = 'passvault.drive.pending';
+  const saved = [STATE, TOKEN, PENDING].map(name => sessionStorage.getItem(name));
+  const reset = () => [STATE, TOKEN, PENDING].forEach(name => sessionStorage.removeItem(name));
+  const scope = 'https://www.googleapis.com/auth/drive.appdata';
+  const answer = extra => '#' + new URLSearchParams({ state: 'abc', scope, expires_in: '3599', ...extra });
+  reset();
+
+  check('ふつうの # は応答とみなさない', D.driveTakeRedirect('') === null && D.driveTakeRedirect('#top') === null);
+
+  sessionStorage.setItem(STATE, 'abc');
+  sessionStorage.setItem(PENDING, 'sync');
+  let result = D.driveTakeRedirect(answer({ access_token: 'tok', state: 'forged' }));
+  check('合言葉が違う応答は受け取らない', result.ok === false && D.driveToken() === null);
+  check('合言葉が違えば続きの同期もしない', D.driveTakePending() === false);
+  check('依頼していない応答も受け取らない',
+        D.driveTakeRedirect(answer({ access_token: 'tok' })).ok === false && D.driveToken() === null);
+
+  sessionStorage.setItem(STATE, 'abc');
+  result = D.driveTakeRedirect(answer({ access_token: 'tok', scope: 'openid' }));
+  check('Drive の許可が無ければ受け取らない', result.ok === false && D.driveToken() === null);
+
+  sessionStorage.setItem(STATE, 'abc');
+  result = D.driveTakeRedirect('#' + new URLSearchParams({ state: 'abc', error: 'access_denied' }));
+  check('取りやめたときはそう伝える', result.ok === false && result.message.includes('取りやめ'));
+
+  sessionStorage.setItem(STATE, 'abc');
+  sessionStorage.setItem(PENDING, 'sync');
+  const now = Date.now();
+  result = D.driveTakeRedirect(answer({ access_token: 'tok' }), now);
+  check('正しい応答ならトークンを覚える', result.ok === true && D.driveToken(now) === 'tok');
+  check('合言葉は使い捨て', sessionStorage.getItem(STATE) === null);
+  check('切れる 1 分前からは無いものとして扱う', D.driveToken(now + 3540 * 1000) === null);
+  check('続きの同期の印は 1 回だけ読める', D.driveTakePending() === true && D.driveTakePending() === false);
+
+  // 偽の Drive。ファイル 1 つを覚えておくだけ
+  const requests = [];
+  let stored = null;
+  const originalFetch = D.driveIO.fetch;
+  D.driveIO.fetch = async (url, init = {}) => {
+    requests.push({ url, init });
+    const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+    if (url.includes('/upload/') && init.method === 'POST') {
+      const raw = new Uint8Array(await new Response(init.body).arrayBuffer());
+      stored = { raw, id: 'file1' };
+      return json({ id: 'file1', modifiedTime: '2026-11-02T00:00:00Z' });
+    }
+    if (url.includes('/upload/') && init.method === 'PATCH') {
+      stored = { raw: null, bytes: new Uint8Array(init.body), id: 'file1' };
+      return json({ id: 'file1' });
+    }
+    if (url.includes('alt=media')) return new Response(stored.bytes);
+    if (url.includes('/files?')) return json({ files: stored ? [{ id: stored.id }] : [] });
+    return new Response('', { status: 404 });
+  };
+
+  try {
+    check('はじめは保管庫が無い', await D.driveFindVault() === null);
+    const first = requests.at(-1);
+    check('アプリ専用フォルダだけを探す', first.url.includes('spaces=appDataFolder'));
+    check('トークンを付けて送る', first.init.headers.Authorization === 'Bearer tok');
+
+    const testHeader = V.makeHeader(1000);
+    const testKey = await V.deriveKey('drive-test', testHeader);
+    const item = V.makeItem('login');
+    item.title = 'Drive 越し';
+    const sealed = await V.seal({ schemaVersion: V.SCHEMA_VERSION, items: [item], deletions: [] },
+                                testKey, testHeader);
+    await D.driveUpload(sealed);
+    const sent = new TextDecoder('latin1').decode(stored.raw);
+    check('新規はアプリ専用フォルダに作る', sent.includes('"parents":["appDataFolder"]'));
+    check('送るのは暗号化済みの塊だけ（題名が平文で載らない）',
+          !new TextDecoder().decode(stored.raw).includes('Drive 越し'));
+
+    await D.driveUpload(sealed, 'file1');
+    check('2 回目からは上書き（PATCH）', requests.at(-1).init.method === 'PATCH'
+          && requests.at(-1).url.includes('/files/file1'));
+    const found = await D.driveFindVault();
+    const back = await V.open(await D.driveDownload(found.id), testKey, testHeader);
+    check('置いたものを取り戻して復号できる', back.items[0].title === 'Drive 越し');
+
+    D.driveIO.fetch = async () => new Response('', { status: 401 });
+    let authError = null;
+    try { await D.driveFindVault(); } catch (caught) { authError = caught; }
+    check('ログイン切れは見分けられる', authError instanceof D.DriveAuthError);
+    check('ログイン切れのトークンは捨てる', D.driveToken() === null);
+
+    D.driveIO.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    sessionStorage.setItem(TOKEN, JSON.stringify({ token: 'tok', expiresAt: Date.now() + 3600e3 }));
+    let offline = null;
+    try { await D.driveFindVault(); } catch (caught) { offline = caught; }
+    check('つながらないときは日本語で伝える', offline?.message.includes('つながりません'));
+  } finally {
+    D.driveIO.fetch = originalFetch;
+    reset();
+    [STATE, TOKEN, PENDING].forEach((name, index) => {
+      if (saved[index] !== null) sessionStorage.setItem(name, saved[index]);
+    });
+  }
+
+  check('Client ID が空のあいだは同期の項目を出さない', D.DRIVE_CLIENT_ID !== '' || D.driveAvailable() === false);
+
+  const site = await (await fetch('site/index.html', { cache: 'no-store' })).text();
+  const csp = site.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
+  check('配信版は通信先を絞っている', /connect-src 'self' https:\/\/www\.googleapis\.com https:\/\/oauth2\.googleapis\.com;/.test(csp));
+  const devPage = await (await fetch('index.html', { cache: 'no-store' })).text();
+  check('開発用ページも同じ制限', csp !== '' && devPage.includes(csp));
+}
 
 } catch (error) {
   lines.push(`\n<span class="fail">例外で停止: ${error.message}</span>`);

@@ -3,6 +3,7 @@
 import * as V from './core.js';
 import * as X from './crypto-extras.js';
 import * as A from './audit.js';
+import * as D from './drive.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
   state, settings, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost, revealItem,
@@ -571,10 +572,15 @@ hooks.openGenerator = function (onUse) {
 
 /// 設定の「押すと何かが始まる」行。アイコン・題名・右の矢印。
 /// 青いリンクが縦に並ぶだけだと、どれが操作でどれが表示なのか、読まないと分からなかった。
-function actionRow(iconName, label, onclick) {
+function actionRow(iconName, label, onclick, sub = null) {
   return el('button', { className: 'g-row action', onclick }, [
     el('span', { className: 'g-ico', 'aria-hidden': 'true' }, [icon(iconName, 16)]),
-    el('span', { className: 'grow', textContent: label }),
+    sub
+      ? el('span', { className: 'grow' }, [
+          el('div', { textContent: label }),
+          el('div', { className: 'g-sub', textContent: sub }),
+        ])
+      : el('span', { className: 'grow', textContent: label }),
     el('span', { className: 'chev', 'aria-hidden': 'true' }, [icon('chevron', 14)]),
   ]);
 }
@@ -633,6 +639,18 @@ hooks.openSettings = function () {
   ];
   if (!onFile) {
     fileRows.push(actionRow('upload', '同期用に書き出す', () => downloadVault({ forSync: true })));
+  }
+  if (D.driveAvailable()) {
+    const syncedAt = driveSyncedAt();
+    fileRows.push(actionRow('upload', 'Google Drive と同期', () => { dialog.close(); syncWithDrive(); },
+      syncedAt ? `前回: ${fmtDateTime(syncedAt)}` : 'まだ同期していません'));
+    if (D.driveToken()) {
+      fileRows.push(actionRow('close', 'Google Drive との接続を切る', () => {
+        D.driveSignOut();
+        toast('Google Drive との接続を切りました');
+        dialog.close();
+      }));
+    }
   }
   // 書き出す＝出ていく向き（upload）、取り込む＝入ってくる向き（download）で揃える
   fileRows.push(
@@ -1068,6 +1086,73 @@ async function importBytes(bytes, sourceLabel) {
   toast(`取り込みました。${A.summaryText(summary)}`);
   render();
   return true;
+}
+
+// ============================================================
+// Google Drive との同期
+//
+// Drive の保管庫を取ってきて項目ごとに合流させ、その結果を書き戻す。
+// 合流は「別の保管庫を取り込む」と同じ仕組みで、新しい方が残り、
+// 完全に削除したものは墓標で伝わる。2 台が同時に書いて片方の変更が
+// Drive から落ちても、その端末の手元には残っているので次の同期で戻る。
+// ============================================================
+
+const DRIVE_SYNCED_KEY = 'passvault.drive.syncedAt';
+
+function driveSyncedAt() {
+  try { return localStorage.getItem(DRIVE_SYNCED_KEY); } catch { return null; }
+}
+
+let driveSyncing = false;
+async function syncWithDrive() {
+  if (driveSyncing || !state.key) return;
+  if (!D.driveToken()) {
+    // Google の画面へ移る。戻ってきて解錠すると afterUnlock から続きが走る。
+    // ページを離れるので、書けていない変更があるなら先に止める。
+    if (state.dirty) { toast('保存できていない変更があります。先に保存してください'); return; }
+    D.driveBeginSignIn();
+    return;
+  }
+  driveSyncing = true;
+  toast('Google Drive と同期しています…');
+  try {
+    const remote = await D.driveFindVault();
+    let summary = null;
+    if (remote) {
+      const payload = await decryptForeignVault(await D.driveDownload(remote.id));
+      if (!payload) { toast('同期を中止しました'); return; }
+      summary = await applyMerge(payload);
+      if (!summary) return;  // 手元に書けなかった。applyMerge が知らせている
+    }
+    const bytes = await V.seal(
+      { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions },
+      state.key, state.header);
+    await D.driveUpload(bytes, remote?.id ?? null);
+    try { localStorage.setItem(DRIVE_SYNCED_KEY, V.isoNoMillis()); } catch { /* 表示用なので諦める */ }
+    toast(summary ? `Google Drive と同期しました。${A.summaryText(summary)}`
+                  : 'Google Drive に保管庫を置きました');
+    render();
+  } catch (caught) {
+    toast(caught instanceof D.DriveAuthError
+      ? 'Google のログインが切れました。もう一度「Google Drive と同期」を押してください'
+      : `同期できませんでした: ${caught.message ?? caught}`);
+  } finally {
+    driveSyncing = false;
+  }
+}
+
+hooks.afterUnlock = function () {
+  if (D.driveTakePending() && D.driveToken()) syncWithDrive();
+};
+
+// Google のログインから戻ってきたところなら、応答を受け取って URL から消す。
+// トークンを URL に残すと、履歴や画面の共有から漏れる。
+{
+  const returned = D.driveTakeRedirect(location.hash);
+  if (returned) {
+    history.replaceState(null, '', location.pathname + location.search);
+    if (!returned.ok) toast(returned.message);
+  }
 }
 
 /// 別の端末の変更が降りてきたときに出す（app.js の pollRemoteChange から）。

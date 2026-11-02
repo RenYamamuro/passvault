@@ -722,6 +722,7 @@ function unlockCard() {
       }
       noteActivity();
       render();
+      hooks.afterUnlock?.();
     } catch (caught) {
       error.textContent = caught.message ?? String(caught);
       button.disabled = false;

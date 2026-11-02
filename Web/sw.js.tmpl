@@ -25,8 +25,8 @@ self.addEventListener('activate', event => {
 
 // 棚にあるものを先に出す。パスワード管理は電波の有無で使えなくなっては困る。
 //
-// 通信は一切しない造りなので、ここで外へ出ていく要求は本来ない。
-// 同じ場所のものだけを扱い、それ以外は素通しする。
+// 外へ出ていく要求は Google Drive との同期だけで、これは棚に置いてはいけない
+// （古い保管庫を返してしまう）。同じ場所のものだけを扱い、それ以外は素通しする。
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;

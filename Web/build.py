@@ -26,7 +26,8 @@ HERE = Path(__file__).parent
 SITE = HERE / "site"
 ICON_SOURCE = HERE / "icon-master.png"   # make-icon.py が作る
 # 依存の順に並べる。名前空間（V / X / A）はこの 3 つから作る。
-NAMESPACED = [("core.js", "V"), ("crypto-extras.js", "X"), ("audit.js", "A"), ("csv.js", "C")]
+NAMESPACED = [("core.js", "V"), ("crypto-extras.js", "X"), ("audit.js", "A"), ("csv.js", "C"),
+              ("drive.js", "D")]
 PLAIN = ["icons.js", "app.js", "detail.js"]
 
 # 見た目のテーマ。style.css（骨組み）の上に重ねる。
@@ -75,6 +76,13 @@ def check_syntax(script: str, label: str = "まとめた結果") -> bool:
         os.unlink(path)
 
 
+# 通信先を Google Drive の API だけに絞る。万一おかしなコードが紛れ込んでも、
+# 解錠済みの中身を fetch でよそへ送れないようにする。
+CSP = ('<meta http-equiv="Content-Security-Policy" content="'
+       "connect-src 'self' https://www.googleapis.com https://oauth2.googleapis.com; "
+       "form-action 'none'; base-uri 'none'; object-src 'none'\">")
+
+
 def page(style: str, script: str, version: str, pwa: bool = False) -> str:
     """1 枚の HTML を組み立てる。pwa を立てるとホーム画面向けの記述を足す。"""
     head = ""
@@ -105,6 +113,7 @@ if ('serviceWorker' in navigator) {
 <html lang="ja">
 <head>
 <meta charset="utf-8">
+{CSP}
 {head}
 <title>PassVault</title>
 <!--
