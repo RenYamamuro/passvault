@@ -223,6 +223,7 @@ export async function persist({ force = false } = {}) {
       state.localSavedAt = V.isoNoMillis();
       state.dirty = false;
       noteActivity();
+      hooks.afterPersist?.();
       return { ok: true, local: true };
     } catch (caught) {
       // 端末にも書けない。ここで ok を返すと消える変更を放置することになる。
@@ -247,6 +248,7 @@ export async function persist({ force = false } = {}) {
     state.fileMtime = (await state.fileHandle.getFile()).lastModified;
     state.dirty = false;
     noteActivity();
+    hooks.afterPersist?.();
     return { ok: true };
   } catch (caught) {
     state.dirty = true;
@@ -1505,7 +1507,7 @@ setInterval(() => { pollRemoteChange(); }, 15_000);
 document.addEventListener('visibilitychange', () => {
   // 画面に戻ってきたときは、待たずに一度見る。
   // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
-  if (!document.hidden) { pollRemoteChange(); return; }
+  if (!document.hidden) { pollRemoteChange(); hooks.onVisible?.(); return; }
 
   // 離れたら施錠する。ダイアログを開いている最中は、
   // 取り込みの file 選択などで一時的に隠れることがあるので触らない。

@@ -789,7 +789,7 @@ select.field {
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "aaaf6a6c5b85";</script>
+<script>window.PASSVAULT_BUILD = "3f3f965017f0";</script>
 <script>
 
 // ===== core.js =====
@@ -2192,6 +2192,7 @@ async function persist({ force = false } = {}) {
       state.localSavedAt = V.isoNoMillis();
       state.dirty = false;
       noteActivity();
+      hooks.afterPersist?.();
       return { ok: true, local: true };
     } catch (caught) {
       // 端末にも書けない。ここで ok を返すと消える変更を放置することになる。
@@ -2216,6 +2217,7 @@ async function persist({ force = false } = {}) {
     state.fileMtime = (await state.fileHandle.getFile()).lastModified;
     state.dirty = false;
     noteActivity();
+    hooks.afterPersist?.();
     return { ok: true };
   } catch (caught) {
     state.dirty = true;
@@ -3474,7 +3476,7 @@ setInterval(() => { pollRemoteChange(); }, 15_000);
 document.addEventListener('visibilitychange', () => {
   // 画面に戻ってきたときは、待たずに一度見る。
   // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
-  if (!document.hidden) { pollRemoteChange(); return; }
+  if (!document.hidden) { pollRemoteChange(); hooks.onVisible?.(); return; }
 
   // 離れたら施錠する。ダイアログを開いている最中は、
   // 取り込みの file 選択などで一時的に隠れることがあるので触らない。
@@ -4234,9 +4236,8 @@ hooks.openSettings = function () {
     fileRows.push(actionRow('upload', '同期用に書き出す', () => downloadVault({ forSync: true })));
   }
   if (D.driveAvailable()) {
-    const syncedAt = driveSyncedAt();
     fileRows.push(actionRow('upload', 'Google Drive と同期', () => { dialog.close(); syncWithDrive(); },
-      syncedAt ? `前回: ${fmtDateTime(syncedAt)}` : 'まだ同期していません'));
+      driveStatusText()));
     if (D.driveToken()) {
       fileRows.push(actionRow('close', 'Google Drive との接続を切る', () => {
         D.driveSignOut();
@@ -4704,17 +4705,30 @@ function driveSyncedAt() {
 }
 
 let driveSyncing = false;
-async function syncWithDrive() {
-  if (driveSyncing || !state.key) return;
+let driveAgain = false;     // 同期の最中に保存があった。終わったらもう一度
+let driveTimer = null;
+let driveTrouble = null;
+let driveOwnWrite = false; // 同期そのものが手元に書いている最中    // 黙って同期して失敗したときの理由（設定画面に出す）
+
+/// quiet は自動の同期。始まりも「変わらなかった」ことも知らせず、
+/// 相手から何か届いたときだけ知らせる。ログインが切れていても Google へは移らない。
+async function syncWithDrive({ quiet = false } = {}) {
+  if (!state.key || !D.driveAvailable()) return;
+  if (driveSyncing) { driveAgain = true; return; }
   if (!D.driveToken()) {
+    if (quiet) return;
     // Google の画面へ移る。戻ってきて解錠すると afterUnlock から続きが走る。
     // ページを離れるので、書けていない変更があるなら先に止める。
     if (state.dirty) { toast('保存できていない変更があります。先に保存してください'); return; }
     D.driveBeginSignIn();
     return;
   }
+  // 編集などのダイアログを開いている最中に中身を差し替えない。閉じて保存したときに走る。
+  if (quiet && document.querySelector('dialog[open]')) { driveAgain = true; return; }
+
   driveSyncing = true;
-  toast('Google Drive と同期しています…');
+  driveAgain = false;
+  if (!quiet) toast('Google Drive と同期しています…');
   try {
     const remote = await D.driveFindVault();
     let summary = null;
@@ -4734,28 +4748,66 @@ async function syncWithDrive() {
         state.key = opened.key;
         state.header = opened.header;
       }
-      summary = await applyMerge(opened.payload);
+      // 合流の結果を手元に書く保存は、自分が起こしたもの。これで次の同期を
+      // 呼ぶと、同期→保存→同期… と終わらなくなる。
+      driveOwnWrite = true;
+      try { summary = await applyMerge(opened.payload); } finally { driveOwnWrite = false; }
       if (!summary) return;  // 手元に書けなかった。applyMerge が知らせている
     }
     const bytes = await V.seal(
       { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions },
       state.key, state.header);
     await D.driveUpload(bytes, remote?.id ?? null);
+    driveTrouble = null;
     try { localStorage.setItem(DRIVE_SYNCED_KEY, V.isoNoMillis()); } catch { /* 表示用なので諦める */ }
-    toast(summary ? `Google Drive と同期しました。${A.summaryText(summary)}`
-                  : 'Google Drive に保管庫を置きました');
-    render();
+    const arrived = summary && (summary.added || summary.updated || summary.deleted);
+    if (!quiet) {
+      toast(summary ? `Google Drive と同期しました。${A.summaryText(summary)}`
+                    : 'Google Drive に保管庫を置きました');
+    } else if (arrived) {
+      toast(`Google Drive から届きました。${A.summaryText(summary)}`);
+    }
+    if (!quiet || arrived) render();
   } catch (caught) {
-    toast(caught instanceof D.DriveAuthError
-      ? 'Google のログインが切れました。もう一度「Google Drive と同期」を押してください'
-      : `同期できませんでした: ${caught.message ?? caught}`);
+    const auth = caught instanceof D.DriveAuthError;
+    driveTrouble = auth ? 'ログインが切れています' : (caught.message ?? String(caught));
+    if (!quiet) {
+      toast(auth ? 'Google のログインが切れました。もう一度「Google Drive と同期」を押してください'
+                 : `同期できませんでした: ${driveTrouble}`);
+    }
   } finally {
     driveSyncing = false;
+    if (driveAgain && D.driveToken()) {
+      driveAgain = false;
+      setTimeout(() => syncWithDrive({ quiet: true }), 0);
+    }
   }
 }
 
+/// 設定画面の「Google Drive と同期」の下に出す説明
+function driveStatusText() {
+  const syncedAt = driveSyncedAt();
+  const last = syncedAt ? `前回: ${fmtDateTime(syncedAt)}` : 'まだ同期していません';
+  if (!D.driveToken()) return syncedAt ? `${last}・押すと Google にログインし直します` : last;
+  return driveTrouble ? `${last}・${driveTrouble}` : `${last}・保存のたびに自動で同期`;
+}
+
+// 保存のたびに送ると、続けて編集したとき通信が重なる。少し待ってまとめる。
+hooks.afterPersist = function () {
+  if (driveOwnWrite || !D.driveAvailable() || !D.driveToken()) return;
+  if (driveSyncing) { driveAgain = true; return; }
+  clearTimeout(driveTimer);
+  driveTimer = setTimeout(() => syncWithDrive({ quiet: true }), 3000);
+};
+
+// 画面に戻ってきたら、別の端末の変更を取りに行く
+hooks.onVisible = function () {
+  if (state.key && D.driveAvailable() && D.driveToken()) syncWithDrive({ quiet: true });
+};
+
 hooks.afterUnlock = function () {
   if (D.driveTakePending() && D.driveToken()) syncWithDrive();
+  else if (D.driveToken()) syncWithDrive({ quiet: true });
 };
 
 // Google のログインから戻ってきたところなら、応答を受け取って URL から消す。
