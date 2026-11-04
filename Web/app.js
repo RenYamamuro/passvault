@@ -192,23 +192,84 @@ export function flashCopied(button, row = null, size = 17) {
 /// 秘密はしばらくしたら消す。
 /// ブラウザにはクリップボード履歴へ「保存するな」と伝える手段がないので、
 /// ネイティブ版よりここは弱い。
+///
+/// 30 秒後に消そうとしても、たいていは断られる。写したあとはログイン画面の
+/// タブへ移っているので、この画面が裏にあり、ブラウザが読み取りを許さない。
+/// iPhone は操作の最中でなければ読み書きできず、裏ではタイマーも止まる。
+/// なので消せなかった分は覚えておき、戻ってきたときと、次に画面を触ったときに消し直す。
+let pendingClear = null;   // { text, label, at, timer }
+let clipboardReadRefused = false;
+let clearingClipboard = false;   // 戻ってきたときは focus と visibilitychange が続けて来る
+
 export async function copySecret(text, label) {
   try {
     await navigator.clipboard.writeText(text);
-    toast(`${label}をコピーしました（${CLIPBOARD_CLEAR_SECONDS}秒で消去）`);
-    setTimeout(async () => {
-      try {
-        if ((await navigator.clipboard.readText()) === text) {
-          await navigator.clipboard.writeText('');
-        }
-      } catch { /* 読み取りが拒否される場合は消せない */ }
-    }, CLIPBOARD_CLEAR_SECONDS * 1000);
+    toast(`${label}をコピーしました（${CLIPBOARD_CLEAR_SECONDS}秒後に消去）`);
+    clearTimeout(pendingClear?.timer);
+    pendingClear = { text, label, at: Date.now(),
+                     timer: setTimeout(() => clearCopiedSecret(), CLIPBOARD_CLEAR_SECONDS * 1000) };
     return true;
   } catch {
     toast('コピーできませんでした（ブラウザが拒否しました）');
     return false;
   }
 }
+
+/// 写した秘密を消す。時間が来ていなければ何もしない。
+///
+/// 中身が写したものと同じときだけ消す（あとで別のものを写していたら残す）。
+/// 読み取りを断られる環境では確かめようがないので、blind のとき（画面を触った瞬間）に限り
+/// 確かめずに消す。秘密が残り続けるより、別のものを消すほうがまだよい。
+export async function clearCopiedSecret({ blind = false, announce = false } = {}) {
+  const pending = pendingClear;
+  if (!pending || clearingClipboard || Date.now() - pending.at < CLIPBOARD_CLEAR_SECONDS * 1000) return false;
+  clearingClipboard = true;
+  try {
+    return await clearPending(pending, { blind, announce });
+  } finally {
+    clearingClipboard = false;
+  }
+}
+
+async function clearPending(pending, { blind, announce }) {
+  if (!blind) {
+    let current;
+    try {
+      current = await navigator.clipboard.readText();
+    } catch {
+      clipboardReadRefused = true;
+      return false;
+    }
+    if (current !== pending.text) { finishClear(pending); return false; }
+  }
+  try {
+    await navigator.clipboard.writeText('');
+  } catch {
+    return false;   // 操作の最中でない。次に触ったときにやり直す
+  }
+  finishClear(pending);
+  if (announce) toast(`コピーした${pending.label}をクリップボードから消しました`);
+  return true;
+}
+
+function finishClear(pending) {
+  if (pendingClear !== pending) return;
+  clearTimeout(pending.timer);
+  pendingClear = null;
+}
+
+/// 戻ってきたときの消し直し。ここで消せたなら、30 秒では消せていなかったということ。
+async function retryClearOnReturn() {
+  if (pendingClear) await clearCopiedSecret({ announce: true });
+}
+
+// 次に画面を触ったとき。読み取りを断られる環境（iPhone など）は、確かめずに消す。
+for (const event of ['click', 'keydown']) {
+  document.addEventListener(event, () => {
+    if (pendingClear && clipboardReadRefused) clearCopiedSecret({ blind: true, announce: true });
+  }, { capture: true, passive: true });
+}
+window.addEventListener('focus', () => { retryClearOnReturn(); });
 
 export const fmtDate = iso => new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
 export const fmtDateTime = iso => new Date(iso).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
@@ -1555,14 +1616,20 @@ const openNewItemMenu = () => hooks.openNewItemMenu?.();
 // ============================================================
 
 let lockingForIdle = false;
-setInterval(async () => {
-  if (!state.key || state.holds > 0 || lockingForIdle) return;
+
+/// 自動施錠の時間を過ぎているか
+export function idleExpired(now = Date.now()) {
+  if (!state.key || state.holds > 0 || lockingForIdle) return false;
   const minutes = settings.autoLockMinutes;
-  if (minutes > 0 && Date.now() - state.lastActivity >= minutes * 60_000) {
-    lockingForIdle = true;
-    try { await lockForIdle(); } finally { lockingForIdle = false; }
-  }
-}, 5000);
+  return minutes > 0 && now - state.lastActivity >= minutes * 60_000;
+}
+
+async function runIdleLock() {
+  lockingForIdle = true;
+  try { await lockForIdle(); } finally { lockingForIdle = false; }
+}
+
+setInterval(() => { if (idleExpired()) runIdleLock(); }, 5000);
 
 // 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
 setInterval(() => { pollRemoteChange(); }, 15_000);
@@ -1576,10 +1643,23 @@ document.addEventListener('focusout', () => {
   }, 60);
 });
 
+/// 裏に回るあいだは中身を隠す。iPhone のアプリ切り替え画面や
+/// Mac の Mission Control に、項目の一覧が写り込まないように。
+const cover = on => document.body.classList.toggle('covered', on);
+
 document.addEventListener('visibilitychange', () => {
-  // 画面に戻ってきたときは、待たずに一度見る。
-  // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
-  if (!document.hidden) { pollRemoteChange(); hooks.onVisible?.(); return; }
+  if (!document.hidden) {
+    // 戻ってきた瞬間に、施錠の時間を過ぎていないか見る。5 秒ごとの見回りを待つと、
+    // そのあいだ中身が見えたままになる（iPhone は裏にいるあいだ見回りも止まる）。
+    if (idleExpired()) { runIdleLock().finally(() => cover(false)); return; }
+    cover(false);
+    retryClearOnReturn();
+    // 待たずに一度見る。別の端末を触ってから戻ってくる、というのが実際いちばん多い。
+    pollRemoteChange();
+    hooks.onVisible?.();
+    return;
+  }
+  if (state.key) cover(true);
 
   // 離れたら施錠する。ダイアログを開いている最中は、
   // 取り込みの file 選択などで一時的に隠れることがあるので触らない。

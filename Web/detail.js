@@ -1152,6 +1152,12 @@ async function syncWithDrive({ quiet = false } = {}) {
   if (driveSyncing) { driveAgain = true; return; }
   if (!D.driveToken()) {
     if (quiet) return;
+    // まず別窓で開く。この画面が残るので、解錠し直さずに済む。
+    // ホーム画面のアプリでは別窓から戻ってこられないので、ページごと移る。
+    if (!D.driveStandalone() && D.driveOpenSignInWindow()) {
+      toast('Google の窓で許可すると、同期が始まります');
+      return;
+    }
     // Google の画面へ移る。戻ってきて解錠すると afterUnlock から続きが走る。
     // ページを離れるので、書けていない変更があるなら先に止める。
     if (state.dirty) { toast('保存できていない変更があります。先に保存してください'); return; }
@@ -1245,13 +1251,34 @@ hooks.afterUnlock = function () {
   else if (D.driveToken()) syncWithDrive({ quiet: true });
 };
 
+// 別窓のログインから届いた応答。解錠中ならそのまま同期を始め、
+// 施錠していれば印を残して、解錠したとき afterUnlock から続ける。
+D.driveListen(hash => {
+  const returned = D.driveTakeRedirect(hash);
+  if (!returned) return;
+  if (!returned.ok) { toast(returned.message); return; }
+  if (state.key && D.driveTakePending()) syncWithDrive();
+});
+
 // Google のログインから戻ってきたところなら、応答を受け取って URL から消す。
 // トークンを URL に残すと、履歴や画面の共有から漏れる。
 {
-  const returned = D.driveTakeRedirect(location.hash);
-  if (returned) {
-    history.replaceState(null, '', location.pathname + location.search);
-    if (!returned.ok) toast(returned.message);
+  const mode = D.driveResponseMode(location.hash);
+  const hash = location.hash;
+  if (mode) history.replaceState(null, '', location.pathname + location.search);
+
+  if (mode === 'popup') {
+    // ここは別窓。応答を元の画面へ渡して閉じる。閉じられない場合に備えて一言残す。
+    D.driveRelayToOpener(hash);
+    window.close();
+    setTimeout(() => toast('Google との接続ができました。この窓は閉じてください'), 300);
+  } else if (mode) {
+    const returned = D.driveTakeRedirect(hash);
+    if (!returned.ok && returned.message) toast(returned.message);
+  } else if (D.driveShouldTrySilent({ usedBefore: Boolean(driveSyncedAt()) })) {
+    // ホーム画面のアプリを開いた直後。何も入力していないうちに Google へ行って戻る。
+    // 戻ってから解錠すれば、そのまま自動で同期できる。
+    D.driveBeginSignIn({ silent: true });
   }
 }
 

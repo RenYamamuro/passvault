@@ -257,6 +257,9 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
   border-radius: var(--r-small);
 }
 
+/* 裏に回るあいだの覆い（app.js）。アプリ切り替え画面に中身を写さない */
+body.covered #app, body.covered dialog, body.covered #toast { visibility: hidden; }
+
 /* ---------- 入口（作成・解錠） ---------- */
 
 #gate {
@@ -902,7 +905,7 @@ select.field {
   <div id="main"></div>
 </div>
 <div id="toast"></div>
-<script>window.PASSVAULT_BUILD = "ca501c0ae264";</script>
+<script>window.PASSVAULT_BUILD = "ebf1a5ee4907";</script>
 <script>
 
 // ===== core.js =====
@@ -1809,6 +1812,13 @@ const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const DRIVE_TOKEN_KEY = 'passvault.drive.token';
 const DRIVE_STATE_KEY = 'passvault.drive.state';
 const DRIVE_PENDING_KEY = 'passvault.drive.pending';
+// 解錠前に黙ってログインしに行った時刻。戻ってくれば消える。残っていたら
+// 前回は Google の画面で止まった（電波が弱いなど）ので、しばらく行かない。
+const DRIVE_SILENT_KEY = 'passvault.drive.silentAt';
+const DRIVE_SILENT_TRIED_KEY = 'passvault.drive.silentTried';
+const DRIVE_SILENT_BACKOFF_MS = 10 * 60_000;
+// 別窓でログインしたとき、その窓から元の画面へ応答を渡す通り道（同じ場所どうしでしか届かない）
+const DRIVE_CHANNEL = 'passvault.drive';
 
 /// 通信の差し替え口（検証ページが偽の Drive をつなぐ）
 const driveIO = { fetch: (...args) => fetch(...args) };
@@ -1828,22 +1838,102 @@ function driveRedirectURI() {
   return location.origin + path;
 }
 
-/// Google のログイン画面へ移る。戻ってきたら driveTakeRedirect で受け取る。
-function driveBeginSignIn() {
+/// ホーム画面に追加したアプリとして開いているか
+function driveStandalone() {
+  return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+/// Google のログイン画面の URL を作り、合言葉を控える。
+///
+/// 合言葉の頭に、どの方式で行ったかを付ける（silent. / popup.）。
+/// 戻ってきた側はこれを見て、黙って片付けるか、元の窓へ渡すかを決める。
+function driveAuthURL(mode, extra = {}) {
   // 戻ってきた応答が、自分の出した依頼への返事であることを確かめる合言葉
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))]
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
-  sessionStorage.setItem(DRIVE_STATE_KEY, nonce);
-  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  const state = mode === 'redirect' ? nonce : `${mode}.${nonce}`;
+  sessionStorage.setItem(DRIVE_STATE_KEY, state);
   const params = new URLSearchParams({
     client_id: DRIVE_CLIENT_ID,
     redirect_uri: driveRedirectURI(),
     response_type: 'token',
     scope: DRIVE_SCOPE,
-    state: nonce,
+    state,
     include_granted_scopes: 'true',
+    ...extra,
   });
-  location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+/// Google のログイン画面へ移る。戻ってきたら driveTakeRedirect で受け取る。
+///
+/// silent は解錠前に黙って行く方式。Google の画面を出さずに（prompt=none）
+/// すぐ戻ってくる。許可を訊く必要があれば、何もせずエラーで戻ってくる。
+function driveBeginSignIn({ silent = false } = {}) {
+  if (silent) {
+    sessionStorage.setItem(DRIVE_SILENT_TRIED_KEY, '1');
+    try { localStorage.setItem(DRIVE_SILENT_KEY, String(Date.now())); } catch { /* 覚えられなくても行ける */ }
+    location.assign(driveAuthURL('silent', { prompt: 'none' }));
+    return;
+  }
+  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  location.assign(driveAuthURL('redirect'));
+}
+
+/// Google のログインを別窓で開く。開けなければ false（呼び出し側はページごと移る方式へ）。
+///
+/// ページごと移ると読み込み直しになり、解錠し直すことになる。別窓ならこの画面は残る。
+/// 応答は窓どうしの通り道（BroadcastChannel）で届く。Google の画面を挟むと、
+/// 開いた側と開かれた側のつながり（window.opener）が切られることがあるため。
+function driveOpenSignInWindow() {
+  if (typeof BroadcastChannel !== 'function') return false;
+  const url = driveAuthURL('popup');
+  const opened = window.open(url, 'passvault-google', 'popup,width=500,height=650');
+  if (!opened) {
+    sessionStorage.removeItem(DRIVE_STATE_KEY);
+    return false;
+  }
+  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  return true;
+}
+
+/// 戻ってきた応答がどの方式のものか。応答でなければ null。
+function driveResponseMode(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  if (!params.has('access_token') && !params.has('error')) return null;
+  const prefix = (params.get('state') ?? '').split('.')[0];
+  return prefix === 'silent' || prefix === 'popup' ? prefix : 'redirect';
+}
+
+/// 別窓の側: 受け取った応答を元の画面へ渡す。確かめるのは元の画面（合言葉を持っている）。
+function driveRelayToOpener(hash) {
+  const channel = new BroadcastChannel(DRIVE_CHANNEL);
+  channel.postMessage(hash);
+  channel.close();
+}
+
+/// 元の画面の側: 別窓からの応答を待ち受ける
+function driveListen(onHash) {
+  if (typeof BroadcastChannel !== 'function') return;
+  new BroadcastChannel(DRIVE_CHANNEL).onmessage = event => {
+    if (typeof event.data === 'string') onHash(event.data);
+  };
+}
+
+/// 解錠前に黙ってログインしに行くべきか。
+///
+/// ホーム画面のアプリは、閉じるたびにトークンを失う。解錠してから同期を押すと
+/// Google へ移って読み込み直しになり、マスターパスワードを打ち直すことになる。
+/// まだ何も入力していない入口のうちに行って戻れば、失うものが無い。
+function driveShouldTrySilent({ usedBefore, now = Date.now() }) {
+  if (!usedBefore || !driveAvailable() || !driveStandalone() || driveToken(now)) return false;
+  if (navigator.onLine === false) return false;
+  if (sessionStorage.getItem(DRIVE_SILENT_TRIED_KEY)) return false;
+  try {
+    const last = Number(localStorage.getItem(DRIVE_SILENT_KEY));
+    if (last && now - last < DRIVE_SILENT_BACKOFF_MS) return false;
+  } catch { /* 読めなければ控えなしとして扱う */ }
+  return true;
 }
 
 /// URL の # 以降に Google の応答があれば受け取る。
@@ -1856,6 +1946,10 @@ function driveTakeRedirect(hash, now = Date.now()) {
 
   const expected = sessionStorage.getItem(DRIVE_STATE_KEY);
   sessionStorage.removeItem(DRIVE_STATE_KEY);
+  const silent = (params.get('state') ?? '').startsWith('silent.');
+  if (silent) {
+    try { localStorage.removeItem(DRIVE_SILENT_KEY); } catch { /* 次の控えが残るだけ */ }
+  }
   if (!expected || params.get('state') !== expected) {
     // 自分が出していない依頼への応答。誰かに押し付けられたトークンかもしれない。
     sessionStorage.removeItem(DRIVE_PENDING_KEY);
@@ -1863,6 +1957,8 @@ function driveTakeRedirect(hash, now = Date.now()) {
   }
   if (params.has('error')) {
     sessionStorage.removeItem(DRIVE_PENDING_KEY);
+    // 黙って行った分は、許可を訊く必要があって戻ってきただけ。知らせることは無い。
+    if (silent) return { ok: false, silent: true, message: null };
     const denied = params.get('error') === 'access_denied';
     return { ok: false, message: denied ? 'Google Drive への接続を取りやめました。'
                                         : `Google のログインに失敗しました（${params.get('error')}）。` };
@@ -1978,7 +2074,7 @@ const V = { HEADER_BYTES, SCHEMA_VERSION, DEFAULT_ITERATIONS, VaultError, makeHe
 const X = { base32Decode, base32Encode, parseOTP, otpCode, otpCodeForCounter, otpSecondsRemaining, formatOTP, GENERATOR_SETS, generatePassword, generatorEntropyBits, estimateBits, STRENGTH_LEVELS, strengthLevel };
 const A = { FINDING_KINDS, AGE_THRESHOLD_MS, WEAK_THRESHOLD_BITS, lastPasswordChange, audit, TOMBSTONE_LIFETIME_MS, merge, summaryText };
 const C = { parseCSV, COLUMN_ALIASES, mapColumns, toRecords, identity };
-const D = { DRIVE_CLIENT_ID, driveIO, DriveAuthError, driveAvailable, driveRedirectURI, driveBeginSignIn, driveTakeRedirect, driveToken, driveTakePending, driveSignOut, driveFindVault, driveDownload, driveUpload };
+const D = { DRIVE_CLIENT_ID, driveIO, DriveAuthError, driveAvailable, driveRedirectURI, driveStandalone, driveBeginSignIn, driveOpenSignInWindow, driveResponseMode, driveRelayToOpener, driveListen, driveShouldTrySilent, driveTakeRedirect, driveToken, driveTakePending, driveSignOut, driveFindVault, driveDownload, driveUpload };
 
 // ===== icons.js =====
 // アイコン。SF Symbols に寄せた線画で、太さと角の丸めを揃えてある。
@@ -2274,23 +2370,84 @@ function flashCopied(button, row = null, size = 17) {
 /// 秘密はしばらくしたら消す。
 /// ブラウザにはクリップボード履歴へ「保存するな」と伝える手段がないので、
 /// ネイティブ版よりここは弱い。
+///
+/// 30 秒後に消そうとしても、たいていは断られる。写したあとはログイン画面の
+/// タブへ移っているので、この画面が裏にあり、ブラウザが読み取りを許さない。
+/// iPhone は操作の最中でなければ読み書きできず、裏ではタイマーも止まる。
+/// なので消せなかった分は覚えておき、戻ってきたときと、次に画面を触ったときに消し直す。
+let pendingClear = null;   // { text, label, at, timer }
+let clipboardReadRefused = false;
+let clearingClipboard = false;   // 戻ってきたときは focus と visibilitychange が続けて来る
+
 async function copySecret(text, label) {
   try {
     await navigator.clipboard.writeText(text);
-    toast(`${label}をコピーしました（${CLIPBOARD_CLEAR_SECONDS}秒で消去）`);
-    setTimeout(async () => {
-      try {
-        if ((await navigator.clipboard.readText()) === text) {
-          await navigator.clipboard.writeText('');
-        }
-      } catch { /* 読み取りが拒否される場合は消せない */ }
-    }, CLIPBOARD_CLEAR_SECONDS * 1000);
+    toast(`${label}をコピーしました（${CLIPBOARD_CLEAR_SECONDS}秒後に消去）`);
+    clearTimeout(pendingClear?.timer);
+    pendingClear = { text, label, at: Date.now(),
+                     timer: setTimeout(() => clearCopiedSecret(), CLIPBOARD_CLEAR_SECONDS * 1000) };
     return true;
   } catch {
     toast('コピーできませんでした（ブラウザが拒否しました）');
     return false;
   }
 }
+
+/// 写した秘密を消す。時間が来ていなければ何もしない。
+///
+/// 中身が写したものと同じときだけ消す（あとで別のものを写していたら残す）。
+/// 読み取りを断られる環境では確かめようがないので、blind のとき（画面を触った瞬間）に限り
+/// 確かめずに消す。秘密が残り続けるより、別のものを消すほうがまだよい。
+async function clearCopiedSecret({ blind = false, announce = false } = {}) {
+  const pending = pendingClear;
+  if (!pending || clearingClipboard || Date.now() - pending.at < CLIPBOARD_CLEAR_SECONDS * 1000) return false;
+  clearingClipboard = true;
+  try {
+    return await clearPending(pending, { blind, announce });
+  } finally {
+    clearingClipboard = false;
+  }
+}
+
+async function clearPending(pending, { blind, announce }) {
+  if (!blind) {
+    let current;
+    try {
+      current = await navigator.clipboard.readText();
+    } catch {
+      clipboardReadRefused = true;
+      return false;
+    }
+    if (current !== pending.text) { finishClear(pending); return false; }
+  }
+  try {
+    await navigator.clipboard.writeText('');
+  } catch {
+    return false;   // 操作の最中でない。次に触ったときにやり直す
+  }
+  finishClear(pending);
+  if (announce) toast(`コピーした${pending.label}をクリップボードから消しました`);
+  return true;
+}
+
+function finishClear(pending) {
+  if (pendingClear !== pending) return;
+  clearTimeout(pending.timer);
+  pendingClear = null;
+}
+
+/// 戻ってきたときの消し直し。ここで消せたなら、30 秒では消せていなかったということ。
+async function retryClearOnReturn() {
+  if (pendingClear) await clearCopiedSecret({ announce: true });
+}
+
+// 次に画面を触ったとき。読み取りを断られる環境（iPhone など）は、確かめずに消す。
+for (const event of ['click', 'keydown']) {
+  document.addEventListener(event, () => {
+    if (pendingClear && clipboardReadRefused) clearCopiedSecret({ blind: true, announce: true });
+  }, { capture: true, passive: true });
+}
+window.addEventListener('focus', () => { retryClearOnReturn(); });
 
 const fmtDate = iso => new Date(iso).toLocaleDateString('ja-JP', { year: 'numeric', month: 'short', day: 'numeric' });
 const fmtDateTime = iso => new Date(iso).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' });
@@ -3637,14 +3794,20 @@ const openNewItemMenu = () => hooks.openNewItemMenu?.();
 // ============================================================
 
 let lockingForIdle = false;
-setInterval(async () => {
-  if (!state.key || state.holds > 0 || lockingForIdle) return;
+
+/// 自動施錠の時間を過ぎているか
+function idleExpired(now = Date.now()) {
+  if (!state.key || state.holds > 0 || lockingForIdle) return false;
   const minutes = settings.autoLockMinutes;
-  if (minutes > 0 && Date.now() - state.lastActivity >= minutes * 60_000) {
-    lockingForIdle = true;
-    try { await lockForIdle(); } finally { lockingForIdle = false; }
-  }
-}, 5000);
+  return minutes > 0 && now - state.lastActivity >= minutes * 60_000;
+}
+
+async function runIdleLock() {
+  lockingForIdle = true;
+  try { await lockForIdle(); } finally { lockingForIdle = false; }
+}
+
+setInterval(() => { if (idleExpired()) runIdleLock(); }, 5000);
 
 // 別の端末の変更を見に行く。ファイルの更新時刻を見るだけなので軽い。
 setInterval(() => { pollRemoteChange(); }, 15_000);
@@ -3658,10 +3821,23 @@ document.addEventListener('focusout', () => {
   }, 60);
 });
 
+/// 裏に回るあいだは中身を隠す。iPhone のアプリ切り替え画面や
+/// Mac の Mission Control に、項目の一覧が写り込まないように。
+const cover = on => document.body.classList.toggle('covered', on);
+
 document.addEventListener('visibilitychange', () => {
-  // 画面に戻ってきたときは、待たずに一度見る。
-  // 別の端末を触ってから戻ってくる、というのが実際いちばん多い。
-  if (!document.hidden) { pollRemoteChange(); hooks.onVisible?.(); return; }
+  if (!document.hidden) {
+    // 戻ってきた瞬間に、施錠の時間を過ぎていないか見る。5 秒ごとの見回りを待つと、
+    // そのあいだ中身が見えたままになる（iPhone は裏にいるあいだ見回りも止まる）。
+    if (idleExpired()) { runIdleLock().finally(() => cover(false)); return; }
+    cover(false);
+    retryClearOnReturn();
+    // 待たずに一度見る。別の端末を触ってから戻ってくる、というのが実際いちばん多い。
+    pollRemoteChange();
+    hooks.onVisible?.();
+    return;
+  }
+  if (state.key) cover(true);
 
   // 離れたら施錠する。ダイアログを開いている最中は、
   // 取り込みの file 選択などで一時的に隠れることがあるので触らない。
@@ -4932,6 +5108,12 @@ async function syncWithDrive({ quiet = false } = {}) {
   if (driveSyncing) { driveAgain = true; return; }
   if (!D.driveToken()) {
     if (quiet) return;
+    // まず別窓で開く。この画面が残るので、解錠し直さずに済む。
+    // ホーム画面のアプリでは別窓から戻ってこられないので、ページごと移る。
+    if (!D.driveStandalone() && D.driveOpenSignInWindow()) {
+      toast('Google の窓で許可すると、同期が始まります');
+      return;
+    }
     // Google の画面へ移る。戻ってきて解錠すると afterUnlock から続きが走る。
     // ページを離れるので、書けていない変更があるなら先に止める。
     if (state.dirty) { toast('保存できていない変更があります。先に保存してください'); return; }
@@ -5025,13 +5207,34 @@ hooks.afterUnlock = function () {
   else if (D.driveToken()) syncWithDrive({ quiet: true });
 };
 
+// 別窓のログインから届いた応答。解錠中ならそのまま同期を始め、
+// 施錠していれば印を残して、解錠したとき afterUnlock から続ける。
+D.driveListen(hash => {
+  const returned = D.driveTakeRedirect(hash);
+  if (!returned) return;
+  if (!returned.ok) { toast(returned.message); return; }
+  if (state.key && D.driveTakePending()) syncWithDrive();
+});
+
 // Google のログインから戻ってきたところなら、応答を受け取って URL から消す。
 // トークンを URL に残すと、履歴や画面の共有から漏れる。
 {
-  const returned = D.driveTakeRedirect(location.hash);
-  if (returned) {
-    history.replaceState(null, '', location.pathname + location.search);
-    if (!returned.ok) toast(returned.message);
+  const mode = D.driveResponseMode(location.hash);
+  const hash = location.hash;
+  if (mode) history.replaceState(null, '', location.pathname + location.search);
+
+  if (mode === 'popup') {
+    // ここは別窓。応答を元の画面へ渡して閉じる。閉じられない場合に備えて一言残す。
+    D.driveRelayToOpener(hash);
+    window.close();
+    setTimeout(() => toast('Google との接続ができました。この窓は閉じてください'), 300);
+  } else if (mode) {
+    const returned = D.driveTakeRedirect(hash);
+    if (!returned.ok && returned.message) toast(returned.message);
+  } else if (D.driveShouldTrySilent({ usedBefore: Boolean(driveSyncedAt()) })) {
+    // ホーム画面のアプリを開いた直後。何も入力していないうちに Google へ行って戻る。
+    // 戻ってから解錠すれば、そのまま自動で同期できる。
+    D.driveBeginSignIn({ silent: true });
   }
 }
 

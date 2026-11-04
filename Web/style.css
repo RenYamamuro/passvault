@@ -236,6 +236,9 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
   border-radius: var(--r-small);
 }
 
+/* 裏に回るあいだの覆い（app.js）。アプリ切り替え画面に中身を写さない */
+body.covered #app, body.covered dialog, body.covered #toast { visibility: hidden; }
+
 /* ---------- 入口（作成・解錠） ---------- */
 
 #gate {

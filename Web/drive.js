@@ -24,6 +24,13 @@ const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
 const DRIVE_TOKEN_KEY = 'passvault.drive.token';
 const DRIVE_STATE_KEY = 'passvault.drive.state';
 const DRIVE_PENDING_KEY = 'passvault.drive.pending';
+// 解錠前に黙ってログインしに行った時刻。戻ってくれば消える。残っていたら
+// 前回は Google の画面で止まった（電波が弱いなど）ので、しばらく行かない。
+const DRIVE_SILENT_KEY = 'passvault.drive.silentAt';
+const DRIVE_SILENT_TRIED_KEY = 'passvault.drive.silentTried';
+const DRIVE_SILENT_BACKOFF_MS = 10 * 60_000;
+// 別窓でログインしたとき、その窓から元の画面へ応答を渡す通り道（同じ場所どうしでしか届かない）
+const DRIVE_CHANNEL = 'passvault.drive';
 
 /// 通信の差し替え口（検証ページが偽の Drive をつなぐ）
 export const driveIO = { fetch: (...args) => fetch(...args) };
@@ -43,22 +50,102 @@ export function driveRedirectURI() {
   return location.origin + path;
 }
 
-/// Google のログイン画面へ移る。戻ってきたら driveTakeRedirect で受け取る。
-export function driveBeginSignIn() {
+/// ホーム画面に追加したアプリとして開いているか
+export function driveStandalone() {
+  return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+/// Google のログイン画面の URL を作り、合言葉を控える。
+///
+/// 合言葉の頭に、どの方式で行ったかを付ける（silent. / popup.）。
+/// 戻ってきた側はこれを見て、黙って片付けるか、元の窓へ渡すかを決める。
+function driveAuthURL(mode, extra = {}) {
   // 戻ってきた応答が、自分の出した依頼への返事であることを確かめる合言葉
   const nonce = [...crypto.getRandomValues(new Uint8Array(16))]
     .map(byte => byte.toString(16).padStart(2, '0')).join('');
-  sessionStorage.setItem(DRIVE_STATE_KEY, nonce);
-  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  const state = mode === 'redirect' ? nonce : `${mode}.${nonce}`;
+  sessionStorage.setItem(DRIVE_STATE_KEY, state);
   const params = new URLSearchParams({
     client_id: DRIVE_CLIENT_ID,
     redirect_uri: driveRedirectURI(),
     response_type: 'token',
     scope: DRIVE_SCOPE,
-    state: nonce,
+    state,
     include_granted_scopes: 'true',
+    ...extra,
   });
-  location.assign(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+}
+
+/// Google のログイン画面へ移る。戻ってきたら driveTakeRedirect で受け取る。
+///
+/// silent は解錠前に黙って行く方式。Google の画面を出さずに（prompt=none）
+/// すぐ戻ってくる。許可を訊く必要があれば、何もせずエラーで戻ってくる。
+export function driveBeginSignIn({ silent = false } = {}) {
+  if (silent) {
+    sessionStorage.setItem(DRIVE_SILENT_TRIED_KEY, '1');
+    try { localStorage.setItem(DRIVE_SILENT_KEY, String(Date.now())); } catch { /* 覚えられなくても行ける */ }
+    location.assign(driveAuthURL('silent', { prompt: 'none' }));
+    return;
+  }
+  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  location.assign(driveAuthURL('redirect'));
+}
+
+/// Google のログインを別窓で開く。開けなければ false（呼び出し側はページごと移る方式へ）。
+///
+/// ページごと移ると読み込み直しになり、解錠し直すことになる。別窓ならこの画面は残る。
+/// 応答は窓どうしの通り道（BroadcastChannel）で届く。Google の画面を挟むと、
+/// 開いた側と開かれた側のつながり（window.opener）が切られることがあるため。
+export function driveOpenSignInWindow() {
+  if (typeof BroadcastChannel !== 'function') return false;
+  const url = driveAuthURL('popup');
+  const opened = window.open(url, 'passvault-google', 'popup,width=500,height=650');
+  if (!opened) {
+    sessionStorage.removeItem(DRIVE_STATE_KEY);
+    return false;
+  }
+  sessionStorage.setItem(DRIVE_PENDING_KEY, 'sync');
+  return true;
+}
+
+/// 戻ってきた応答がどの方式のものか。応答でなければ null。
+export function driveResponseMode(hash) {
+  const params = new URLSearchParams(hash.replace(/^#/, ''));
+  if (!params.has('access_token') && !params.has('error')) return null;
+  const prefix = (params.get('state') ?? '').split('.')[0];
+  return prefix === 'silent' || prefix === 'popup' ? prefix : 'redirect';
+}
+
+/// 別窓の側: 受け取った応答を元の画面へ渡す。確かめるのは元の画面（合言葉を持っている）。
+export function driveRelayToOpener(hash) {
+  const channel = new BroadcastChannel(DRIVE_CHANNEL);
+  channel.postMessage(hash);
+  channel.close();
+}
+
+/// 元の画面の側: 別窓からの応答を待ち受ける
+export function driveListen(onHash) {
+  if (typeof BroadcastChannel !== 'function') return;
+  new BroadcastChannel(DRIVE_CHANNEL).onmessage = event => {
+    if (typeof event.data === 'string') onHash(event.data);
+  };
+}
+
+/// 解錠前に黙ってログインしに行くべきか。
+///
+/// ホーム画面のアプリは、閉じるたびにトークンを失う。解錠してから同期を押すと
+/// Google へ移って読み込み直しになり、マスターパスワードを打ち直すことになる。
+/// まだ何も入力していない入口のうちに行って戻れば、失うものが無い。
+export function driveShouldTrySilent({ usedBefore, now = Date.now() }) {
+  if (!usedBefore || !driveAvailable() || !driveStandalone() || driveToken(now)) return false;
+  if (navigator.onLine === false) return false;
+  if (sessionStorage.getItem(DRIVE_SILENT_TRIED_KEY)) return false;
+  try {
+    const last = Number(localStorage.getItem(DRIVE_SILENT_KEY));
+    if (last && now - last < DRIVE_SILENT_BACKOFF_MS) return false;
+  } catch { /* 読めなければ控えなしとして扱う */ }
+  return true;
 }
 
 /// URL の # 以降に Google の応答があれば受け取る。
@@ -71,6 +158,10 @@ export function driveTakeRedirect(hash, now = Date.now()) {
 
   const expected = sessionStorage.getItem(DRIVE_STATE_KEY);
   sessionStorage.removeItem(DRIVE_STATE_KEY);
+  const silent = (params.get('state') ?? '').startsWith('silent.');
+  if (silent) {
+    try { localStorage.removeItem(DRIVE_SILENT_KEY); } catch { /* 次の控えが残るだけ */ }
+  }
   if (!expected || params.get('state') !== expected) {
     // 自分が出していない依頼への応答。誰かに押し付けられたトークンかもしれない。
     sessionStorage.removeItem(DRIVE_PENDING_KEY);
@@ -78,6 +169,8 @@ export function driveTakeRedirect(hash, now = Date.now()) {
   }
   if (params.has('error')) {
     sessionStorage.removeItem(DRIVE_PENDING_KEY);
+    // 黙って行った分は、許可を訊く必要があって戻ってきただけ。知らせることは無い。
+    if (silent) return { ok: false, silent: true, message: null };
     const denied = params.get('error') === 'access_denied';
     return { ok: false, message: denied ? 'Google Drive への接続を取りやめました。'
                                         : `Google のログインに失敗しました（${params.get('error')}）。` };

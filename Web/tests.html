@@ -1679,6 +1679,130 @@ section('表示の切り替え（自動・ライト・ダーク）');
         && shipped.indexOf("localStorage.getItem('passvault.theme')") < shipped.indexOf('<style>'));
 }
 
+// ============================================================
+section('コピーした秘密の消し直し');
+// ============================================================
+// 30 秒後は、たいていログイン画面のタブにいて読み取りを断られる。
+// iPhone は操作の最中でないと読み書きできない。消せなかった分を戻ってきたときに消す。
+{
+  const realClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const realNow = Date.now;
+  let board = '';
+  let readMode = 'ok';   // ok | refuse
+  let writeRefused = false;
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: {
+    writeText: async text => { if (writeRefused) throw new Error('拒否'); board = text; },
+    readText: async () => { if (readMode === 'refuse') throw new Error('拒否'); return board; },
+  } });
+  const later = () => { const base = realNow(); Date.now = () => base + 31_000; };
+  try {
+    await App.copySecret('secret-1', 'パスワード');
+    check('時間が来る前は消さない', (await App.clearCopiedSecret()) === false && board === 'secret-1');
+
+    later();
+    writeRefused = true;
+    check('裏にいて書けなければ消せないと返す', (await App.clearCopiedSecret()) === false && board === 'secret-1');
+    writeRefused = false;
+    check('戻ってきたら消し直せる', (await App.clearCopiedSecret()) === true && board === '');
+    check('消したら控えも捨てる（二度消さない）', (await App.clearCopiedSecret()) === false);
+
+    Date.now = realNow;
+    await App.copySecret('secret-2', 'パスワード');
+    board = 'あとで写した別のもの';
+    later();
+    check('別のものを写していたら残す', (await App.clearCopiedSecret()) === false && board === 'あとで写した別のもの');
+
+    Date.now = realNow;
+    await App.copySecret('secret-3', 'パスワード');
+    later();
+    readMode = 'refuse';
+    check('読めない環境（iPhone）では確かめられないので待つ', (await App.clearCopiedSecret()) === false && board === 'secret-3');
+    document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    check('次に画面を触ったときに確かめずに消す', board === '');
+  } finally {
+    Date.now = realNow;
+    if (realClipboard) Object.defineProperty(navigator, 'clipboard', realClipboard);
+    else delete navigator.clipboard;
+  }
+}
+
+// ============================================================
+section('裏から戻ったときの施錠と覆い');
+// ============================================================
+{
+  const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+  const setHidden = value => Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
+  const minutesBefore = localStorage.getItem('passvault.autoLockMinutes');
+  App.settings.autoLockMinutes = 5;
+  try {
+    App.state.header = V.makeHeader(1000);
+    App.state.key = await V.deriveKey('idle-pass', App.state.header);
+    App.state.items = [];
+    App.state.dirty = false;
+    App.state.lastActivity = Date.now();
+    check('触ったばかりなら時間切れではない', App.idleExpired() === false);
+    check('5 分経てば時間切れ', App.idleExpired(Date.now() + 5 * 60_000 + 1) === true);
+    App.state.holds = 1;
+    check('ダイアログの最中は施錠しない（見回りと同じ決まり）', App.idleExpired(Date.now() + 6 * 60_000) === false);
+    App.state.holds = 0;
+
+    setHidden(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    check('裏に回ると中身に覆いをかける', document.body.classList.contains('covered'));
+
+    App.state.lastActivity = Date.now() - 6 * 60_000;
+    setHidden(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    check('戻った瞬間に時間切れなら施錠する（見回りを待たない）', App.state.key === null);
+    check('施錠したら覆いを外す（入口の画面は見える）', !document.body.classList.contains('covered'));
+
+    setHidden(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    check('施錠中は覆いをかけない（隠すものが無い）', !document.body.classList.contains('covered'));
+    const css = await (await fetch('style.css', { cache: 'no-store' })).text();
+    check('覆いはアプリとダイアログを隠す', /body\.covered #app, body\.covered dialog/.test(css));
+  } finally {
+    if (hidden) Object.defineProperty(document, 'hidden', hidden); else delete document.hidden;
+    document.body.classList.remove('covered');
+    if (minutesBefore === null) localStorage.removeItem('passvault.autoLockMinutes');
+    else localStorage.setItem('passvault.autoLockMinutes', minutesBefore);
+    App.state.key = null;
+    App.state.header = null;
+  }
+}
+
+// ============================================================
+section('Google のログインを打ち直しなしで');
+// ============================================================
+{
+  const STATE = 'passvault.drive.state', SILENT = 'passvault.drive.silentAt';
+  const scope = 'https://www.googleapis.com/auth/drive.appdata';
+  check('応答でなければ方式は無い', D.driveResponseMode('#top') === null);
+  check('別窓の応答を見分ける', D.driveResponseMode('#access_token=t&state=popup.abc') === 'popup');
+  check('黙って行った応答を見分ける', D.driveResponseMode('#error=interaction_required&state=silent.abc') === 'silent');
+  check('ふつうの応答', D.driveResponseMode('#access_token=t&state=abc') === 'redirect');
+
+  sessionStorage.setItem(STATE, 'silent.abc');
+  localStorage.setItem(SILENT, String(Date.now()));
+  const quiet = D.driveTakeRedirect('#error=interaction_required&state=silent.abc');
+  check('黙って行って許可が要ると言われても、知らせない', quiet.ok === false && quiet.silent === true && !quiet.message);
+  check('戻ってきたら「Google で止まった」控えを消す', localStorage.getItem(SILENT) === null);
+
+  sessionStorage.setItem(STATE, 'popup.abc');
+  const viaPopup = D.driveTakeRedirect('#' + new URLSearchParams({ access_token: 'pop', state: 'popup.abc', scope, expires_in: '3599' }));
+  check('別窓の応答も合言葉を確かめて受け取る', viaPopup.ok === true && D.driveToken() === 'pop');
+  sessionStorage.removeItem('passvault.drive.token');
+
+  check('一度も同期していなければ黙って行かない', D.driveShouldTrySilent({ usedBefore: false }) === false);
+  check('ホーム画面のアプリでなければ黙って行かない（別窓で済む）',
+        D.driveStandalone() || D.driveShouldTrySilent({ usedBefore: true }) === false);
+  const detail = await (await fetch('detail.js', { cache: 'no-store' })).text();
+  check('ホーム画面のアプリ以外は、まず別窓で開く',
+        /!D\.driveStandalone\(\) && D\.driveOpenSignInWindow\(\)/.test(detail));
+}
+
 } catch (error) {
   lines.push(`\n<span class="fail">例外で停止: ${error.message}</span>`);
   out.innerHTML = lines.join('\n');
