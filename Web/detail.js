@@ -7,7 +7,7 @@ import * as D from './drive.js';
 import { icon, CATEGORY_LOOK, FINDING_ICONS } from './icons.js';
 import {
   state, settings, applyTheme, save, forceSave, downloadVault, toast, noteActivity, filterBy, avatarFor, flashCopied, isSplit, detailHost, revealItem,
-  readVaultFileBytes, applyMerge,
+  readVaultFileBytes, applyMerge, takeDraftStash,
   copyPlain, copySecret, el, $, fmtDateTime,
   activeItems, trashedItems, CLIPBOARD_CLEAR_SECONDS,
   render, hooks,
@@ -331,13 +331,19 @@ hooks.openNewItemMenu = function () {
 // 編集
 // ============================================================
 
-function openEditor(original, isNew = false) {
-  const draft = structuredClone(original);
+/// 開いている編集の画面。施錠するとき、書きかけを預かるのに使う。
+const openEditors = new Set();
+
+hooks.collectDrafts = () => [...openEditors].filter(editor => editor.dirty()).map(editor => editor.draft());
+
+/// restored は、施錠のときに預かった書きかけ。元の姿（original）との違いが「書きかけ」として残る。
+function openEditor(original, isNew = false, restored = null) {
+  const draft = structuredClone(restored ?? original);
   const category = V.CATEGORIES[draft.category];
   let tagText = draft.tags.join(', ');
   // 開いた時点の姿。これと違えば「書きかけがある」。
   const snapshot = () => JSON.stringify([draft, tagText]);
-  const opened = snapshot();
+  const opened = JSON.stringify([original, original.tags.join(', ')]);
 
   const dialog = makeDialog(isNew ? `新規${category.name}` : '編集', async () => {
     const title = draft.title.trim();
@@ -366,6 +372,14 @@ function openEditor(original, isNew = false) {
   });
 
   dialog.isDirty = () => snapshot() !== opened;
+
+  const editor = {
+    dirty: dialog.isDirty,
+    draft: () => ({ ...structuredClone(draft),
+                    tags: tagText.split(',').map(tag => tag.trim()).filter(Boolean) }),
+  };
+  openEditors.add(editor);
+  dialog.onDismiss = () => openEditors.delete(editor);
 
   const body = dialog.querySelector('.dlg-body');
 
@@ -754,6 +768,10 @@ function openPasswordChange() {
       error.textContent = 'ファイルに書けなかったため、変更を取り消しました。';
       return false;
     }
+    // 古い鍵は、この解錠のあいだだけ覚えておく。Drive にはまだ古いパスワードの
+    // 保管庫があり、次の同期でそれを開いて合流させ、新しいパスワードで書き直すため。
+    // 覚えていないと、同期のたびに古いパスワードを訊くことになる。
+    state.retiredKeys.push({ header: previousHeader, key: previousKey });
     toast('マスターパスワードを変更しました');
     return true;
   }, '変更');
@@ -788,24 +806,32 @@ async function decryptForeignVault(bytes) {
 
 /// 相手のファイルを開き、開けた鍵も返す。取り消されたら null。
 /// keyed は「手元の鍵では開けず、パスワードを訊いて開いた」ことを表す。
-async function openForeignVault(bytes) {
+async function openForeignVault(bytes, { hint } = {}) {
   const header = V.decodeHeader(bytes);
 
-  const sameHeader = state.header
-    && header.raw.length === state.header.raw.length
-    && header.raw.every((byte, index) => byte === state.header.raw[index]);
-  if (sameHeader) {
+  const sameHeader = other => other
+    && header.raw.length === other.raw.length
+    && header.raw.every((byte, index) => byte === other.raw[index]);
+  if (sameHeader(state.header)) {
     try { return { payload: await V.open(bytes, state.key, header), key: state.key, header, keyed: false }; }
     catch { /* 訊きに回る */ }
   }
+  // さっきまで使っていたパスワードの保管庫。開けたら、手元の（新しい）鍵のまま進める。
+  for (const retired of state.retiredKeys) {
+    if (!sameHeader(retired.header)) continue;
+    try {
+      return { payload: await V.open(bytes, retired.key, header),
+               key: state.key, header: state.header, keyed: false };
+    } catch { /* 訊きに回る */ }
+  }
 
-  const password = await askPassword();
+  const password = await askPassword(hint);
   if (password === null) return null;
   const key = await V.deriveKey(password, header);
   return { payload: await V.open(bytes, key, header), key, header, keyed: true };  // 違えば例外が出る
 }
 
-function askPassword() {
+function askPassword(hint = 'いま開いている保管庫とは別のパスワードで作られている場合に必要です。') {
   return new Promise(resolve => {
     const input = el('input', { className: 'field', type: 'password',
       placeholder: 'そのファイルのマスターパスワード' });
@@ -819,8 +845,7 @@ function askPassword() {
     dialog.onDismiss = () => { if (!answered) resolve(null); };
     dialog.querySelector('.dlg-body').append(
       el('div', { className: 'group' }, [el('div', { className: 'g-row' }, [input])]),
-      el('div', { className: 'g-foot', textContent:
-        'いま開いている保管庫とは別のパスワードで作られている場合に必要です。' }),
+      el('div', { className: 'g-foot', textContent: hint }),
     );
     dialog.showModal();
     setTimeout(() => input.focus(), 0);
@@ -1143,7 +1168,10 @@ let driveSyncing = false;
 let driveAgain = false;     // 同期の最中に保存があった。終わったらもう一度
 let driveTimer = null;
 let driveTrouble = null;
-let driveOwnWrite = false; // 同期そのものが手元に書いている最中    // 黙って同期して失敗したときの理由（設定画面に出す）
+let driveOwnWrite = false; // 同期そのものが手元に書いている最中
+// Drive の保管庫が別のパスワードで、答えをもらえなかった。自動の同期を止めておく。
+// 止めないと、画面に戻るたびにパスワードを訊き続ける。押して同期すれば解ける。
+let driveNeedsAnswer = false;
 
 /// quiet は自動の同期。始まりも「変わらなかった」ことも知らせず、
 /// 相手から何か届いたときだけ知らせる。ログインが切れていても Google へは移らない。
@@ -1164,36 +1192,66 @@ async function syncWithDrive({ quiet = false } = {}) {
     D.driveBeginSignIn();
     return;
   }
-  // 編集などのダイアログを開いている最中に中身を差し替えない。閉じて保存したときに走る。
-  if (quiet && document.querySelector('dialog[open]')) { driveAgain = true; return; }
+  if (quiet && driveNeedsAnswer) return;
+  // 編集などのダイアログを開いている最中に中身を差し替えない。閉じるまで少しずつ待つ。
+  if (quiet && document.querySelector('dialog[open]')) {
+    clearTimeout(driveTimer);
+    driveTimer = setTimeout(() => syncWithDrive({ quiet: true }), 3000);
+    return;
+  }
+  if (!quiet) driveNeedsAnswer = false;
+
+  // 待っている間に施錠されたら、続きを諦める（施錠した保管庫に書き込まない）
+  const epoch = state.epoch;
+  const stillOpen = () => state.epoch === epoch && state.key;
 
   driveSyncing = true;
   driveAgain = false;
   if (!quiet) toast('Google Drive と同期しています…');
   try {
     const remote = await D.driveFindVault();
+    if (!stillOpen()) return;
     let summary = null;
     if (remote) {
-      const opened = await openForeignVault(await D.driveDownload(remote.id));
-      if (!opened) { toast('同期を中止しました'); return; }
+      const bytes = await D.driveDownload(remote.id);
+      if (!stillOpen()) return;
+      const opened = await openForeignVault(bytes, { hint:
+        'Google Drive の保管庫は、この端末とは別のマスターパスワードで保存されています。'
+        + '別の端末でパスワードを変えた場合などに起こります。そのパスワードを入力してください。' });
+      if (!stillOpen()) return;
+      if (!opened) {
+        driveNeedsAnswer = true;
+        toast('同期を中止しました。設定の「Google Drive と同期」から再開できます');
+        return;
+      }
       if (opened.keyed) {
-        // 別々に作った保管庫どうしは、塩（ヘッダ）が違う。そのままだと
-        // 同期のたびに相手側でパスワードを訊かれ、2 台で交互に訊かれ続ける。
-        // ここで手元を Drive の鍵に揃えれば、以後はどちらでも訊かれない。
-        const agreed = await hooks.askConfirm(
-          'この端末を Drive の保管庫に揃えます',
-          '次からは、いま入力したパスワードでこの端末の保管庫も開くようになります。'
-          + '中身は合流させるので、この端末の項目は消えません。',
-          { confirmLabel: '揃える' });
-        if (!agreed) { toast('同期を中止しました'); return; }
-        state.key = opened.key;
-        state.header = opened.header;
+        // 別々のパスワードで保存されている。そのままだと同期のたびに訊かれ、
+        // 2 台で交互に訊かれ続けるので、どちらかに揃える。
+        // どちらを選んでも中身は合流させるので、項目は消えない。
+        const choice = await hooks.askChoice('どちらのパスワードに揃えますか',
+          'Drive の保管庫とこの端末の保管庫は、別のマスターパスワードで保存されています。'
+          + 'どちらを選んでも中身は合流させるので、項目は消えません。',
+          [['drive', 'この端末を Drive に揃える',
+            '別の端末でパスワードを変えた場合。いま入力したパスワードで、この端末も開くようになります'],
+           ['local', 'Drive をこの端末のパスワードで書き直す',
+            'この端末でパスワードを変えた場合。いま入力した古いパスワードは使えなくなります']]);
+        if (!stillOpen()) return;
+        if (!choice) {
+          driveNeedsAnswer = true;
+          toast('同期を中止しました。設定の「Google Drive と同期」から再開できます');
+          return;
+        }
+        if (choice === 'drive') {
+          state.key = opened.key;
+          state.header = opened.header;
+        }
       }
       // 合流の結果を手元に書く保存は、自分が起こしたもの。これで次の同期を
       // 呼ぶと、同期→保存→同期… と終わらなくなる。
       driveOwnWrite = true;
       try { summary = await applyMerge(opened.payload); } finally { driveOwnWrite = false; }
       if (!summary) return;  // 手元に書けなかった。applyMerge が知らせている
+      if (!stillOpen()) return;
     }
     const bytes = await V.seal(
       { schemaVersion: V.SCHEMA_VERSION, items: state.items, deletions: state.deletions },
@@ -1212,7 +1270,11 @@ async function syncWithDrive({ quiet = false } = {}) {
   } catch (caught) {
     const auth = caught instanceof D.DriveAuthError;
     driveTrouble = auth ? 'ログインが切れています' : (caught.message ?? String(caught));
-    if (!quiet) {
+    if (caught instanceof V.VaultError) {
+      // 訊かれたパスワードが違った。利用者は答えたところなので、自動の同期でも知らせる。
+      driveNeedsAnswer = true;
+      toast(`同期を中止しました: ${driveTrouble}`);
+    } else if (!quiet) {
       toast(auth ? 'Google のログインが切れました。もう一度「Google Drive と同期」を押してください'
                  : `同期できませんでした: ${driveTrouble}`);
     }
@@ -1230,6 +1292,7 @@ function driveStatusText() {
   const syncedAt = driveSyncedAt();
   const last = syncedAt ? `前回: ${fmtDateTime(syncedAt)}` : 'まだ同期していません';
   if (!D.driveToken()) return syncedAt ? `${last}・押すと Google にログインし直します` : last;
+  if (driveNeedsAnswer) return `${last}・パスワードの確認待ち（押すと再開）`;
   return driveTrouble ? `${last}・${driveTrouble}` : `${last}・保存のたびに自動で同期`;
 }
 
@@ -1246,7 +1309,18 @@ hooks.onVisible = function () {
   if (state.key && D.driveAvailable() && D.driveToken()) syncWithDrive({ quiet: true });
 };
 
-hooks.afterUnlock = function () {
+hooks.afterUnlock = async function () {
+  // 施錠のとき編集の画面で書きかけだったものを、編集の画面ごと戻す
+  const drafts = await takeDraftStash(state.key);
+  if (drafts.length) {
+    const draft = drafts[0];
+    const current = state.items.find(item => item.id === draft.id);
+    openEditor(current ?? { ...V.makeItem(draft.category), id: draft.id }, !current, draft);
+    toast(drafts.length > 1
+      ? `書きかけの編集を戻しました（ほか ${drafts.length - 1} 件は戻せませんでした）`
+      : '施錠したときの書きかけを戻しました。保存するまで保管庫には入っていません');
+  }
+
   if (D.driveTakePending() && D.driveToken()) syncWithDrive();
   else if (D.driveToken()) syncWithDrive({ quiet: true });
 };
@@ -1410,6 +1484,27 @@ hooks.askConfirm = function (title, message, { confirmLabel = 'OK', destructive 
   });
 };
 
+/// いくつかの道から 1 つ選ばせる。choices は [値, 見出し, 説明]。閉じられた場合は null。
+hooks.askChoice = function (title, message, choices) {
+  return new Promise(resolve => {
+    let answered = false;
+    const dialog = makeDialog(title, null);
+    dialog.onDismiss = () => { if (!answered) resolve(null); };
+    dialog.querySelector('.dlg-body').append(
+      el('div', { className: 'group' }, [
+        el('div', { className: 'g-row' }, [el('div', { style: 'line-height:1.65', textContent: message })]),
+      ]),
+      el('div', { className: 'group' }, choices.map(([value, label, sub]) =>
+        el('button', { className: 'g-row', style: 'display:block;text-align:left',
+          onclick: () => { answered = true; resolve(value); dialog.close(); } }, [
+          el('div', { style: 'color:var(--accent);font-weight:600', textContent: label }),
+          sub ? el('div', { className: 'lab', style: 'margin-top:3px', textContent: sub }) : null,
+        ].filter(Boolean)))),
+    );
+    dialog.showModal();
+  });
+};
+
 /// 短い文字列を訊く。空のままなら確定させない。閉じられた場合は null。
 hooks.askText = function (title, label, { placeholder = '', initial = '', confirmLabel = '追加' } = {}) {
   return new Promise(resolve => {
@@ -1483,18 +1578,18 @@ function makeDialog(title, onConfirm, confirmLabel = '保存') {
     el('div', { className: 'dlg-body' }),
   );
 
-  // ダイアログを開いている間は画面を触らない時間が続くので、自動施錠を止める。
-  state.holds += 1;
+  // ダイアログを開いていても自動施錠は止めない。止めていた頃は、編集の画面を
+  // 開いたまま置くと、パスワードが見えたままいつまでも施錠されなかった。
+  // 打っている間はキー操作が「触っている」扱いになるので、入力の途中では施錠しない。
+  // 時間が来たら、書きかけは app.js の stashDrafts が預かり、ダイアログは lock() が閉じる。
 
   // 後始末を close イベント任せにしない。
-  // 環境によっては <dialog> の close/cancel が飛んでこないことがあり、
-  // そうなると holds が減らないまま自動施錠が永久に止まる。
+  // 環境によっては <dialog> の close/cancel が飛んでこないことがあるので、
   // close() を包んで、確実に一度だけ後始末する。
   let finished = false;
   const finish = () => {
     if (finished) return;
     finished = true;
-    state.holds = Math.max(0, state.holds - 1);
     noteActivity();
     dialog.remove();
     dialog.onDismiss?.();

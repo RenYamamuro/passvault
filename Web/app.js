@@ -28,11 +28,17 @@ export const state = {
   search: '',
   revealed: new Set(),
   lastActivity: Date.now(),
-  holds: 0,           // 0 より大きい間は自動施錠しない
+  holds: 0,           // 0 より大きい間は自動施錠しない（ファイル選択の窓が出ている間だけ）
   view: 'home',       // 狭い画面で出している面: home | list | detail（広い画面では使わない）
   cursor: -1,         // 一覧でキーボードが指している位置（-1 はまだ触っていない）
   stash: null,        // 施錠時に保存できていなかった変更（暗号化したまま）
+  draftStash: null,   // 施錠時に編集の画面で書きかけだった項目（暗号化したまま）
+  epoch: 0,           // 施錠のたびに 1 進む。待っている間に施錠された処理が、続きを諦める目印
+  retiredKeys: [],    // この解錠のあいだに変える前だったマスターパスワードの鍵（Drive の同期に使う）
 };
+
+/// ダイアログを開いているか。開いている間は一覧のキー操作や、別の端末の変更の確認を控える。
+export const dialogOpen = () => !!document.querySelector('dialog[open]');
 
 export const CLIPBOARD_CLEAR_SECONDS = 30;
 
@@ -377,7 +383,7 @@ async function detectExternalChange() {
 let pollingRemote = false;
 export async function pollRemoteChange() {
   if (!state.key || !state.fileHandle || state.fileMtime == null) return false;
-  if (state.holds > 0 || pollingRemote || !hooks.onRemoteChange) return false;
+  if (state.holds > 0 || dialogOpen() || pollingRemote || !hooks.onRemoteChange) return false;
   pollingRemote = true;
   try {
     const file = await state.fileHandle.getFile();
@@ -594,6 +600,11 @@ export function safeToReload() {
 }
 
 export function lock() {
+  // 開いている画面を閉じる。施錠の向こうにパスワードの見える画面を残さない。
+  // 閉じると、答えを待っている処理には「取り消し」が返る。
+  for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+  state.epoch += 1;
+  state.retiredKeys = [];
   state.key = null;
   state.header = null;
   state.items = [];
@@ -634,10 +645,42 @@ async function lockForIdle() {
     const written = await persist();
     if (!written.ok || state.dirty) stashed = await stashUnsaved();
   }
+  const drafted = await stashDrafts();
   lock();
-  toast(stashed
+  toast(stashed || drafted
     ? '自動的に施錠しました。保存できていない変更は預かってあります'
     : '自動的に施錠しました');
+}
+
+/// 編集の画面で書きかけだった項目を、暗号化して預かる。
+///
+/// ダイアログを開いていても施錠するようにしたので、書きかけを黙って捨てないための受け皿。
+/// 保管庫と同じ鍵で閉じるので、同じパスワードで解錠したときだけ戻せる。
+async function stashDrafts() {
+  const drafts = hooks.collectDrafts?.() ?? [];
+  if (!drafts.length || !state.key || !state.header) return false;
+  try {
+    state.draftStash = {
+      bytes: await V.seal({ schemaVersion: V.SCHEMA_VERSION, items: drafts, deletions: [] },
+                          state.key, state.header),
+      header: state.header,
+    };
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/// 預かっていた書きかけを取り出す。取り出したら預かりは捨てる。
+export async function takeDraftStash(key) {
+  const held = state.draftStash;
+  state.draftStash = null;
+  if (!held) return [];
+  try {
+    return (await V.open(held.bytes, key, held.header)).items;
+  } catch {
+    return [];   // 別の保管庫、あるいはパスワードを変えた後
+  }
 }
 
 /// 解錠したあと、預かっていた変更があれば取り戻せるか調べる。
@@ -1674,7 +1717,7 @@ document.addEventListener('visibilitychange', () => {
 // この造りだと、探す→選ぶ→コピーが一続きの操作になる。
 
 document.addEventListener('keydown', event => {
-  if (!state.key || state.holds > 0) return;   // 施錠中とダイアログ表示中は触らない
+  if (!state.key || state.holds > 0 || dialogOpen()) return;   // 施錠中とダイアログ表示中は触らない
 
   const search = $('#search');
   const typing = document.activeElement?.tagName === 'INPUT'

@@ -518,12 +518,9 @@ check('別のパスワードでは取り戻せない', !leaked);
 // ============================================================
 section('ダイアログの後始末');
 // ============================================================
-// ダイアログを開いている間は自動施錠を止める（holds を上げる）が、
-// 閉じたときに必ず戻さないと、一度開いただけで自動施錠が永久に働かなくなる。
-//
-// 後始末を <dialog> の close イベント任せにしていたところ、
-// 環境によってはそのイベントが飛んでこず、holds が積み上がっていた。
-// close() を包んで確実に一度だけ後始末する形にしてある。
+// 以前はダイアログを開いている間は自動施錠を止めていたが、開いたまま置くと
+// いつまでも施錠されなかった。いまは止めない（holds は動かない）。
+// 後始末は close() を包んで確実に一度だけ行う（close イベントが飛んでこない環境がある）。
 
 const holdsBefore = App.state.holds;
 
@@ -531,7 +528,7 @@ const ask = App.hooks.askConfirm('確認', '本文', { destructive: true });
 await new Promise(r => setTimeout(r, 30));
 let dialog = document.querySelector('dialog[open]');
 check('確認ダイアログが開く', dialog !== null);
-check('開いている間は自動施錠が止まる', App.state.holds === holdsBefore + 1);
+check('開いていても自動施錠は止めない', App.state.holds === holdsBefore);
 check('破壊的な確定ボタンに印が付く', !!dialog.querySelector('.dlg-head button.danger'));
 
 dialog.close();
@@ -1801,6 +1798,156 @@ section('Google のログインを打ち直しなしで');
   const detail = await (await fetch('detail.js', { cache: 'no-store' })).text();
   check('ホーム画面のアプリ以外は、まず別窓で開く',
         /!D\.driveStandalone\(\) && D\.driveOpenSignInWindow\(\)/.test(detail));
+}
+
+// ============================================================
+section('ダイアログを開いたままの自動施錠と、書きかけの預かり');
+// ============================================================
+{
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const hidden = Object.getOwnPropertyDescriptor(document, 'hidden');
+  const minutesBefore = localStorage.getItem('passvault.autoLockMinutes');
+  const realConfirm = App.hooks.askConfirm;
+  App.settings.autoLockMinutes = 5;
+  try {
+    const header = V.makeHeader(1000);
+    const key = await V.deriveKey('draft-pass', header);
+    const item = makeLogin('元の題', 'pw-1');
+    Object.assign(App.state, { header, key, items: [item], deletions: [], dirty: false, fileHandle: null });
+    App.hooks.openEditor(item);
+    const input = document.querySelector('dialog[open] .dlg-body input');
+    input.value = '書きかけの題';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+
+    App.state.lastActivity = Date.now() - 6 * 60_000;
+    check('編集の画面を開いていても時間切れになる', App.idleExpired() === true);
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await wait(80);
+    check('施錠すると開いていた画面も閉じる', App.state.key === null && !document.querySelector('dialog[open]'));
+    check('書きかけは暗号化して預かる', App.state.draftStash !== null
+          && !new TextDecoder().decode(App.state.draftStash.bytes).includes('書きかけの題'));
+
+    // 同じパスワードで解錠したことにする
+    Object.assign(App.state, { header, key, items: [item], deletions: [] });
+    await App.hooks.afterUnlock();
+    await wait(30);
+    const reopened = document.querySelector('dialog[open] .dlg-body input');
+    check('解錠すると編集の画面ごと書きかけが戻る', reopened?.value === '書きかけの題');
+    check('戻しただけでは保管庫に入らない（保存するまで）', App.state.items[0].title === '元の題');
+    check('預かりは一度きり', App.state.draftStash === null);
+    let asked = 0;
+    App.hooks.askConfirm = async () => { asked++; return true; };
+    document.querySelector('dialog[open] .dlg-head button').click();
+    await wait(30);
+    check('戻した書きかけを閉じるときは確認が入る', asked === 1);
+
+    // 別のパスワードでは戻らない
+    App.hooks.openEditor(item);
+    const again = document.querySelector('dialog[open] .dlg-body input');
+    again.value = '別の書きかけ';
+    again.dispatchEvent(new Event('input', { bubbles: true }));
+    App.state.lastActivity = Date.now() - 6 * 60_000;
+    document.dispatchEvent(new Event('visibilitychange'));
+    await wait(80);
+    check('別のパスワードでは取り出せない',
+          (await App.takeDraftStash(await V.deriveKey('wrong', header))).length === 0);
+  } finally {
+    App.hooks.askConfirm = realConfirm;
+    for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+    if (hidden) Object.defineProperty(document, 'hidden', hidden); else delete document.hidden;
+    if (minutesBefore === null) localStorage.removeItem('passvault.autoLockMinutes');
+    else localStorage.setItem('passvault.autoLockMinutes', minutesBefore);
+    Object.assign(App.state, { key: null, header: null, items: [], draftStash: null });
+  }
+}
+
+// ============================================================
+section('パスワードを変えたあとの Drive 同期');
+// ============================================================
+// 変えたあと Drive には古いパスワードの保管庫が残る。以前は同期のたびに古いパスワードを訊き、
+// 「揃える」を押すと変更が巻き戻っていた。
+{
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const until = async test => { for (let i = 0; i < 100 && !test(); i++) await wait(20); return test(); };
+  const TOKEN = 'passvault.drive.token';
+  const savedToken = sessionStorage.getItem(TOKEN);
+  const originalFetch = D.driveIO.fetch;
+  let stored = null;
+  D.driveIO.fetch = async (url, init = {}) => {
+    const json = body => new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } });
+    if (url.includes('/upload/') && init.method === 'PATCH') { stored = new Uint8Array(init.body); return json({ id: 'f' }); }
+    if (url.includes('alt=media')) return new Response(stored);
+    if (url.includes('/files?')) return json({ files: [{ id: 'f' }] });
+    return new Response('', { status: 404 });
+  };
+  const fakeFile = { createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+                     getFile: async () => ({ lastModified: 1 }) };
+  const sameHeader = (bytes, header) => V.decodeHeader(bytes).raw.every((byte, i) => byte === header.raw[i]);
+  try {
+    sessionStorage.setItem(TOKEN, JSON.stringify({ token: 'tok', expiresAt: Date.now() + 3600e3 }));
+    const oldHeader = V.makeHeader(1000);
+    const oldKey = await V.deriveKey('old-pass', oldHeader);
+    const onDrive = makeLogin('iPhone で足した', 'x');
+    stored = await V.seal({ schemaVersion: V.SCHEMA_VERSION, items: [onDrive], deletions: [] }, oldKey, oldHeader);
+
+    const newHeader = V.makeHeader(1000);
+    const newKey = await V.deriveKey('new-pass', newHeader);
+    Object.assign(App.state, { header: newHeader, key: newKey, items: [makeLogin('Mac', 'y')], deletions: [],
+                               fileHandle: fakeFile, fileMtime: null, dirty: false,
+                               retiredKeys: [{ header: oldHeader, key: oldKey }] });
+    await App.hooks.afterUnlock();
+    check('変えた直後は、古いパスワードを訊かずに同期する',
+          await until(() => sameHeader(stored, newHeader)) && !document.querySelector('dialog[open]'));
+    check('Drive は新しいパスワードで書き直される',
+          (await V.open(stored, newKey, newHeader)).items.length === 2);
+    check('Drive にあった項目も合流している', App.state.items.some(item => item.title === 'iPhone で足した'));
+
+    // 施錠をはさんで古い鍵を忘れたあと: 訊かれたら、手元のパスワードを選べる
+    stored = await V.seal({ schemaVersion: V.SCHEMA_VERSION, items: [onDrive], deletions: [] }, oldKey, oldHeader);
+    Object.assign(App.state, { retiredKeys: [], items: [makeLogin('Mac', 'y')] });
+    App.hooks.afterUnlock();
+    await until(() => document.querySelector('dialog[open] input[type="password"]'));
+    const pass = document.querySelector('dialog[open] input[type="password"]');
+    check('訊くときは Drive 側のパスワードだと分かる', document.querySelector('dialog[open]').textContent.includes('Google Drive の保管庫'));
+    pass.value = 'old-pass';
+    document.querySelector('dialog[open] .dlg-head button:last-child').click();
+    await until(() => document.querySelector('dialog[open]')?.textContent.includes('どちらのパスワード'));
+    const choices = [...document.querySelectorAll('dialog[open] .dlg-body button')];
+    check('どちらに揃えるか選べる（2 つ）', choices.length === 2);
+    choices[1].click();
+    check('「Drive を書き直す」なら手元のパスワードのまま', await until(() => sameHeader(stored, newHeader))
+          && App.state.header === newHeader);
+
+    // 取り消したら、自動の同期では訊き続けない
+    stored = await V.seal({ schemaVersion: V.SCHEMA_VERSION, items: [onDrive], deletions: [] }, oldKey, oldHeader);
+    App.hooks.afterUnlock();
+    await until(() => document.querySelector('dialog[open] input[type="password"]'));
+    document.querySelector('dialog[open]').close();
+    await wait(50);
+    App.hooks.onVisible();
+    await wait(80);
+    check('取り消したあとは、戻ってくるたびに訊き直さない', !document.querySelector('dialog[open]'));
+  } finally {
+    D.driveIO.fetch = originalFetch;
+    for (const dialog of document.querySelectorAll('dialog[open]')) dialog.close();
+    if (savedToken === null) sessionStorage.removeItem(TOKEN); else sessionStorage.setItem(TOKEN, savedToken);
+    Object.assign(App.state, { key: null, header: null, items: [], fileHandle: null, retiredKeys: [] });
+  }
+}
+
+// ============================================================
+section('同じ秒の編集の合流');
+// ============================================================
+{
+  const at = '2026-11-16T00:00:00Z';
+  const mine = { ...makeLogin('同じ', 'a'), id: 'same-id', updatedAt: at };
+  const theirs = { ...structuredClone(mine), title: '同じ（向こう）' };
+  const here = A.merge({ items: [mine], deletions: [] }, { items: [theirs], deletions: [] });
+  const there = A.merge({ items: [theirs], deletions: [] }, { items: [mine], deletions: [] });
+  check('同じ秒の編集でも、どちらの端末でも同じ方が残る',
+        JSON.stringify(here.payload.items) === JSON.stringify(there.payload.items));
+  check('同じ中身どうしなら変更なし', A.merge({ items: [mine], deletions: [] }, { items: [structuredClone(mine)], deletions: [] }).summary.unchanged === 1);
 }
 
 } catch (error) {

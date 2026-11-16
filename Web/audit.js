@@ -108,6 +108,17 @@ export function audit(items, now = Date.now()) {
 /// もうすべての端末に伝わっているとみなして捨てる。
 export const TOMBSTONE_LIFETIME_MS = 180 * 24 * 60 * 60 * 1000;
 
+/// a を b より新しいとみなすか。
+///
+/// 更新時刻は秒までしか持たないので、2 台で同じ秒に編集すると同時刻になる。
+/// そのとき「手元の方を残す」にすると、どちらの端末も自分の版を残し、
+/// 何度同期しても食い違ったままになる。中身で決めれば、どちらから見ても同じ方が勝つ。
+export function newer(a, b) {
+  const difference = Date.parse(a.updatedAt) - Date.parse(b.updatedAt);
+  if (difference !== 0) return difference > 0;
+  return JSON.stringify(a) > JSON.stringify(b);
+}
+
 export function merge(local, remote, now = Date.now()) {
   const summary = { added: 0, updated: 0, deleted: 0, unchanged: 0 };
 
@@ -115,7 +126,7 @@ export function merge(local, remote, now = Date.now()) {
     const map = new Map();
     for (const item of items) {
       const existing = map.get(item.id);
-      if (!existing || Date.parse(item.updatedAt) > Date.parse(existing.updatedAt)) {
+      if (!existing || newer(item, existing)) {
         map.set(item.id, item);
       }
     }
@@ -140,7 +151,7 @@ export function merge(local, remote, now = Date.now()) {
     const remoteItem = remoteItems.get(id);
     let winner = null;
     if (localItem && remoteItem) {
-      winner = Date.parse(remoteItem.updatedAt) > Date.parse(localItem.updatedAt) ? remoteItem : localItem;
+      winner = newer(remoteItem, localItem) ? remoteItem : localItem;
     } else {
       winner = localItem ?? remoteItem ?? null;
     }
